@@ -1,1191 +1,1270 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>HeadCount · Grupo Promass</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-    :root {
-        --navy: #0A335B;
-        --navy-dark: #072240;
-        --navy-light: #E5EFF6;
-        --gold: #EAB52D;
-        --gold-hover: #DCA421;
-        --bg-main: #EEF3F8;
-        --surface: #FFFFFF;
+"""
+hc_manager.py · Tablero de HC y gestión de horarios para Operaciones.
+"""
+import os
+import re
+import csv
+import io
+import json
+import sqlite3
+import threading
+import unicodedata
+from datetime import datetime, timedelta
+from collections import defaultdict
+from flask import Flask, Blueprint, request, jsonify, send_file, send_from_directory
+
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HC_DB_PATH = os.environ.get('HC_DB_PATH', os.path.join(BASE_DIR, 'hc_manager.db'))
+HC_HTML_FILE = 'hc_dashboard.html'
+
+HC_LOCK = threading.RLock()
+HC_DB_READY = False
+
+ROSTER_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS hc_agents (
+    agent_id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'Agente',
+    is_new_hire INTEGER NOT NULL DEFAULT 0,
+    supervisor TEXT NOT NULL DEFAULT '',
+    coordinator TEXT NOT NULL DEFAULT '',
+    campaign TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'Llamadas',
+    status TEXT NOT NULL DEFAULT 'Activo',
+    hire_date TEXT,
+    termination_date TEXT,
+    termination_reason TEXT NOT NULL DEFAULT '',
+    lunes TEXT NOT NULL DEFAULT 'DD-DD',
+    martes TEXT NOT NULL DEFAULT 'DD-DD',
+    miercoles TEXT NOT NULL DEFAULT 'DD-DD',
+    jueves TEXT NOT NULL DEFAULT 'DD-DD',
+    viernes TEXT NOT NULL DEFAULT 'DD-DD',
+    sabado TEXT NOT NULL DEFAULT 'DD-DD',
+    domingo TEXT NOT NULL DEFAULT 'DD-DD',
+    email TEXT NOT NULL DEFAULT '',
+    employee_number TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    effective_date TEXT,
+    changed_at TEXT NOT NULL,
+    changed_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_terminations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    termination_date TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    rehireable INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    from_campaign TEXT NOT NULL,
+    to_campaign TEXT NOT NULL,
+    from_channel TEXT NOT NULL DEFAULT '',
+    to_channel TEXT NOT NULL DEFAULT '',
+    from_supervisor TEXT NOT NULL DEFAULT '',
+    to_supervisor TEXT NOT NULL DEFAULT '',
+    from_coordinator TEXT NOT NULL DEFAULT '',
+    to_coordinator TEXT NOT NULL DEFAULT '',
+    from_role TEXT NOT NULL DEFAULT '',
+    to_role TEXT NOT NULL DEFAULT '',
+    effective_date TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_absences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    absence_type TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'approved',
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(agent_id) REFERENCES hc_agents(agent_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS hc_people_catalog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_schedule_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    schedules_json TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(agent_id) REFERENCES hc_agents(agent_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hc_campaign ON hc_agents(campaign);
+CREATE INDEX IF NOT EXISTS idx_hc_status ON hc_agents(status);
+CREATE INDEX IF NOT EXISTS idx_hc_termination ON hc_agents(termination_date);
+CREATE INDEX IF NOT EXISTS idx_hc_history_agent ON hc_history(agent_id);
+CREATE INDEX IF NOT EXISTS idx_hc_term_agent ON hc_terminations(agent_id);
+CREATE INDEX IF NOT EXISTS idx_hc_transfers_agent ON hc_transfers(agent_id);
+CREATE INDEX IF NOT EXISTS idx_hc_absences_agent ON hc_absences(agent_id);
+CREATE INDEX IF NOT EXISTS idx_hc_overrides_agent ON hc_schedule_overrides(agent_id);
+"""
+
+def _conn():
+    conn = sqlite3.connect(HC_DB_PATH, timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys=ON')
+    conn.execute('PRAGMA busy_timeout=5000')
+    return conn
+
+def _init_db():
+    global HC_DB_READY
+    if HC_DB_READY: return
+    with HC_LOCK:
+        if HC_DB_READY: return
+        conn = _conn()
+        try:
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')
+            conn.executescript(SCHEMA)
+            
+            columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_agents)").fetchall()]
+            if 'role' not in columns:
+                conn.execute("ALTER TABLE hc_agents ADD COLUMN role TEXT NOT NULL DEFAULT 'Agente'")
+            if 'is_new_hire' not in columns:
+                conn.execute("ALTER TABLE hc_agents ADD COLUMN is_new_hire INTEGER NOT NULL DEFAULT 0")
+
+            t_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_transfers)").fetchall()]
+            if 'from_role' not in t_columns:
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_role TEXT NOT NULL DEFAULT ''")
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_role TEXT NOT NULL DEFAULT ''")
+
+            abs_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_absences)").fetchall()]
+            if 'status' not in abs_columns:
+                conn.execute("ALTER TABLE hc_absences ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'")
+                conn.execute("ALTER TABLE hc_absences ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+
+            conn.commit()
+            HC_DB_READY = True
+        finally:
+            conn.close()
+
+def _today(): return datetime.now().strftime('%Y-%m-%d')
+def _now(): return datetime.now().isoformat(timespec='seconds')
+
+def parse_db_date(val):
+    if not val: return None
+    try:
+        return datetime.strptime(str(val)[:10], '%Y-%m-%d').date()
+    except Exception:
+        return None
+
+def _validate_date(value, field='fecha'):
+    raw = str(value or '').strip()[:10]
+    try:
+        datetime.strptime(raw, '%Y-%m-%d')
+        return raw
+    except Exception:
+        try:
+            dt = datetime.strptime(raw, '%d/%m/%Y')
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            raise ValueError(f'{field} inválida: "{value}". Usa YYYY-MM-DD o DD/MM/YYYY.')
+
+def _validate_schedule(value):
+    raw = str(value or '').strip().upper()
+    if not raw or raw in ('NAN', 'NONE', 'DD-DD', 'DESCANSO', 'OFF'): return 'DD-DD'
+    m = re.match(r'^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$', raw)
+    if not m: raise ValueError(f'Horario inválido: "{value}". Usa HH:MM-HH:MM o DD-DD.')
+    h1, m1, h2, m2 = (int(m.group(i)) for i in range(1, 5))
+    if not (0 <= h1 <= 23 and 0 <= m1 <= 59 and 0 <= h2 <= 24 and 0 <= m2 <= 59): raise ValueError('Horario fuera de rango.')
+    if h2 == 24 and m2 != 0: raise ValueError('La hora final debe ser 24:00.')
+    if h1 * 60 + m1 == h2 * 60 + m2: raise ValueError('El horario no puede ser de duración cero.')
+    return f'{h1:02d}:{m1:02d}-{h2:02d}:{m2:02d}'
+
+def _normalize_channel(value):
+    raw = str(value or '').strip().lower()
+    if 'chat' in raw or 'mensaje' in raw: return 'Chat'
+    return 'Llamadas'
+
+def _normalize_col(col_name):
+    col = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
+    return re.sub(r'[^a-z0-9]', '', col.lower())
+
+def _log_history(conn, agent_id, change_type, before, after, reason='', effective_date=None, actor='operaciones'):
+    conn.execute("""INSERT INTO hc_history (agent_id, change_type, before_json, after_json, reason, effective_date, changed_at, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (agent_id, change_type, json.dumps(before, ensure_ascii=False) if before else None, json.dumps(after, ensure_ascii=False) if after else None, str(reason or '')[:500], effective_date, _now(), str(actor or 'operaciones')[:80]))
+
+def _row_to_agent(row):
+    if not row: return None
+    today = _today()
+    d = {
+        'agentId': row['agent_id'], 'fullName': row['full_name'] or '', 'role': row['role'] or 'Agente',
+        'isNewHire': bool(row['is_new_hire']),
+        'supervisor': row['supervisor'] or '', 'coordinator': row['coordinator'] or '', 
+        'campaign': row['campaign'] or '', 'channel': row['channel'] or 'Llamadas',
+        'status': row['status'] or 'Activo', 'hireDate': row['hire_date'], 'terminationDate': row['termination_date'],
+        'terminationReason': row['termination_reason'] or '', 'schedules': {
+            'Lunes': row['lunes'] or 'DD-DD', 'Martes': row['martes'] or 'DD-DD', 'Miércoles': row['miercoles'] or 'DD-DD',
+            'Jueves': row['jueves'] or 'DD-DD', 'Viernes': row['viernes'] or 'DD-DD', 'Sábado': row['sabado'] or 'DD-DD', 'Domingo': row['domingo'] or 'DD-DD',
+        },
+        'email': row['email'] or '', 'employeeNumber': row['employee_number'] or '', 'notes': row['notes'] or '',
+        'createdAt': row['created_at'], 'updatedAt': row['updated_at'], 'updatedBy': row['updated_by'] or '',
     }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-main); margin: 0; padding: 20px; color: #334155; }
+    if row['termination_date']:
+        d['displayStatus'] = 'Baja programada' if row['termination_date'] > today else 'Baja'
+        d['terminationPending'] = row['termination_date'] > today
+    elif str(row['status']).strip().title() == 'Baja':
+        d['displayStatus'] = 'Baja'
+        d['terminationPending'] = False
+    else:
+        d['displayStatus'] = 'Activo'
+        d['terminationPending'] = False
+    return d
+
+def _fetch_agent(conn, agent_id):
+    return _row_to_agent(conn.execute("SELECT * FROM hc_agents WHERE agent_id=?", (agent_id,)).fetchone())
+
+def _diff_agents(before, after):
+    out = {}
+    if not before or not after: return out
+    for k in ('fullName', 'supervisor', 'coordinator', 'campaign', 'channel', 'hireDate', 'role', 'isNewHire'):
+        if before.get(k) != after.get(k): out[k] = {'before': before.get(k), 'after': after.get(k)}
+    if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
+    return out
+
+def _ensure_people_catalog(conn, supervisor, coordinator):
+    now = _now()
+    if supervisor:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('supervisor', ?, ?)", (supervisor.strip(), now))
+    if coordinator:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('coordinator', ?, ?)", (coordinator.strip(), now))
+
+def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
+    new_id = str((payload or {}).get('agentId') or '').strip()
+    if not new_id: raise ValueError('El ID del agente es obligatorio.')
     
-    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 20px; border: 1px solid #CBD5E1; background: var(--surface); box-shadow: 0 20px 50px -20px rgba(10,51,91,.15); overflow: hidden; min-height: calc(100vh - 40px); }
+    role = str(payload.get('role') or 'Agente').strip()[:120]
+    is_admin = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
     
-    /* HEADER CORPORATIVO */
-    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 24px; background: var(--navy); color: #FFF; }
-    .roster-head-left { display: flex; align-items: center; gap: 20px; }
+    campaign = str((payload or {}).get('campaign') or '').strip()
+    if not campaign and not is_admin: raise ValueError('La campaña es obligatoria.')
+    if not campaign and is_admin: campaign = 'Administrativo'
+
+    before = _fetch_agent(conn, old_id)
+    if before is None and not allow_create: raise ValueError('No se encontró el agente.')
+
+    supervisor = str(payload.get('supervisor') or '').strip()[:120]
+    coordinator = str(payload.get('coordinator') or '').strip()[:120]
+    is_new_hire = 1 if payload.get('isNewHire') else 0
+    _ensure_people_catalog(conn, supervisor, coordinator)
+
+    if before and old_id != new_id:
+        if conn.execute("SELECT 1 FROM hc_agents WHERE agent_id=?", (new_id,)).fetchone():
+            raise ValueError('El nuevo ID de agente ya existe.')
+        conn.execute("UPDATE hc_terminations SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_transfers SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_absences SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_schedule_overrides SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_history SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+
+    schedules = payload.get('schedules') or {}
+    days = {d: _validate_schedule(schedules.get(d, (before or {}).get('schedules', {}).get(d, 'DD-DD'))) for d in ROSTER_DAYS}
+
+    hire_date = payload.get('hireDate')
+    if hire_date: 
+        hire_date = _validate_date(hire_date, 'fecha de ingreso')
+    elif before is None: 
+        hire_date = None
+
+    now = _now()
+    validity = payload.get('validity') or {}
+    is_temp = validity.get('type') == 'temporary'
     
-    .brand-logo { display: flex; align-items: center; background: #FFF; padding: 6px 12px; border-radius: 8px; }
-    .brand-logo img { height: 38px; width: auto; object-fit: contain; }
-    
-    .header-title-group { display: flex; flex-direction: column; justify-content: center; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 20px; }
-    .header-main-title { margin: 0; font-size: 24px; font-weight: 900; color: #FFF; line-height: 1.1; letter-spacing: -0.5px; }
-    .header-sub-title { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
+    values = (
+        str(payload.get('fullName') or '').strip()[:120], role, is_new_hire, supervisor,
+        coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
+        hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
+        str(payload.get('notes') or '').strip()[:500], 
+        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo']
+    )
 
-    .roster-head-actions { display: flex; align-items: center; gap: 8px; }
-    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; display: flex; align-items: center; justify-content: center;}
-    .roster-head-btn:hover { background: rgba(255,255,255,0.1); border-color: #FFF; }
-    .roster-head-btn.gold { background: var(--gold); border-color: var(--gold); color: var(--navy); }
-    .roster-head-btn.gold:hover { background: var(--gold-hover); }
-    .roster-head-btn.white { background: #FFF; color: var(--navy); border-color: #FFF; }
-    .roster-head-btn.white:hover { background: #F1F5F9; }
-    .roster-head-btn.secondary { background: rgba(255,255,255,0.05); border-color: transparent; color: #9BB5D6; }
-    .roster-head-btn.secondary:hover { background: rgba(255,255,255,0.1); color: #FFF; }
-    
-    /* KPIS */
-    .roster-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
-    .roster-kpi { padding: 16px; border-radius: 12px; border: 1px solid #CBD5E1; background: var(--surface); min-width: 0; box-shadow: 0 4px 6px -4px rgba(0,0,0,0.05); }
-    .roster-kpi.is-primary { background: var(--navy); border-color: var(--navy); }
-    .roster-kpi.is-primary .roster-kpi-label { color: #9BB5D6; }
-    .roster-kpi.is-primary .roster-kpi-value { color: #FFF; }
-    .roster-kpi.is-primary .roster-kpi-detail { color: #9BB5D6; }
-    
-    .roster-kpi-label { color: #64748B; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
-    .roster-kpi-value { margin-top: 6px; color: var(--navy); font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .roster-kpi-detail { margin-top: 4px; color: #94A3B8; font-size: 9px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    /* TOOLBAR */
-    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 10px; padding: 20px 24px 16px; align-items: end; }
-    .roster-input, .roster-select { width: 100%; min-height: 40px; border-radius: 8px; border: 1px solid #CBD5E1; background: var(--surface); color: var(--navy); padding: 0 12px; font-size: 11px; font-weight: 600; outline: none; transition: .15s; }
-    .roster-input:focus, .roster-select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(10,51,91,0.15); }
-    .roster-toolbar-btn { min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--navy); background: var(--navy); color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; white-space: nowrap; transition: .15s; }
-    .roster-toolbar-btn:hover { background: var(--navy-dark); }
-
-    .roster-content { padding: 0 24px 24px; flex: 1; display: flex; flex-direction: column; }
-    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #CBD5E1; border-radius: 12px; background: var(--surface); max-height: 500px; }
-    .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; min-width: 1200px; }
-    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 12px 10px; background: var(--navy); color: #FFF; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; text-align: left; white-space: nowrap; }
-    .roster-table th:first-child { border-top-left-radius: 10px; }
-    .roster-table th:last-child { border-top-right-radius: 10px; }
-    .roster-table td { padding: 10px; color: #475569; border-bottom: 1px solid #E2E8F0; white-space: nowrap; vertical-align: middle; }
-    .roster-table tr:hover td { background: #F8FAFC; }
-    
-    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--navy); }
-    .roster-agent-name { font-weight: 700; color: var(--navy); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 8px; align-items: center; border-radius: 6px; background: #F1F5F9; color: #475569; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; }
-    .roster-schedule.off { background: #F8FAFC; color: #94A3B8; }
-    
-    .roster-status { display: inline-flex; min-height: 22px; padding: 0 8px; align-items: center; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-right: 4px; }
-    .roster-status.active { background: #DCFCE7; color: #166534; }
-    .roster-status.inactive { background: #FEE2E2; color: #991B1B; }
-    .roster-status.vacation { background: #DBEAFE; color: #1E40AF; }
-    .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
-    .roster-status.new-hire { background: #F3E8FF; color: #6B21A8; }
-    
-    .roster-edit-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #CBD5E1; color: var(--navy); background: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .roster-edit-btn:hover { background: var(--navy-light); border-color: var(--navy); }
-
-    .download-block { margin: 0 24px 20px; padding: 16px; border-radius: 12px; background: var(--navy); color: #FFF; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-    .download-block strong { color: #FFF; font-size: 13px; display: block; margin-bottom: 4px; }
-    .download-block p { color: #9BB5D6; font-size: 11px; margin: 0; }
-    .download-block input[type="date"] { min-height: 36px; padding: 0 10px; font-size: 11px; border-radius: 6px; border: none; color: var(--navy); font-weight: 700; }
-
-    /* Cronograma */
-    .schedule-section { margin-top: 10px; padding: 20px; border: 1px solid #CBD5E1; border-radius: 12px; background: var(--surface); }
-    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-    .schedule-title { font-size: 15px; font-weight: 900; color: var(--navy); }
-    .schedule-tabs { display: flex; gap: 4px; background: #F1F5F9; padding: 4px; border-radius: 8px; }
-    .schedule-tab { padding: 6px 14px; border-radius: 6px; border: none; background: transparent; color: #64748B; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .schedule-tab.active { background: var(--navy); color: #FFF; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-    .schedule-metric { padding: 14px; border-radius: 10px; border: 1px solid #E2E8F0; background: #F8FAFC; }
-    .schedule-metric-label { font-size: 9px; font-weight: 800; color: #64748B; text-transform: uppercase; }
-    .schedule-metric-value { margin-top: 4px; font-size: 18px; font-weight: 900; color: var(--navy); font-family: 'JetBrains Mono', monospace; }
-    .schedule-chart-container { display: flex; align-items: flex-end; height: 180px; gap: 4px; padding: 16px 12px 28px; border-radius: 10px; border: 1px solid #E2E8F0; background: linear-gradient(to top, rgba(10,51,91,.06) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
-    .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
-    .chart-bar { width: 100%; max-width: 20px; background: var(--navy); border-radius: 4px 4px 0 0; transition: height 0.3s ease; min-height: 2px; }
-    .chart-bar-label { position: absolute; bottom: -22px; font-size: 8px; font-family: 'JetBrains Mono', monospace; color: #64748B; }
-    .chart-bar-value { position: absolute; font-size: 8px; font-weight: 800; color: var(--navy); margin-bottom: 4px; }
-
-    /* Modales Rediseñados */
-    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15,23,42,.6); backdrop-filter: blur(4px); }
-    .modal-backdrop.hidden { display: none; }
-    .modal { width: 100%; max-width: 650px; max-height: calc(100vh - 40px); background: #F8FAFC; border-radius: 16px; border: 1px solid #E2E8F0; box-shadow: 0 28px 60px -30px rgba(10,51,91,.5); overflow: hidden; display: flex; flex-direction: column; }
-    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 20px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E8F0; }
-    .modal-title { font-size: 20px; font-weight: 800; color: #0F172A; margin: 0; }
-    .modal-sub { font-size: 12px; color: #64748B; margin: 4px 0 0; }
-    .modal-close { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #E2E8F0; background: #FFF; color: #64748B; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: .15s; }
-    .modal-close:hover { background: #F1F5F9; color: #0F172A; }
-    .modal-body { padding: 24px; overflow-y: auto; }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid #E2E8F0; background: #FFFFFF; }
-    
-    .form-section-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #64748B; margin: 20px 0 12px; }
-    .form-section-title:first-child { margin-top: 0; }
-    
-    .field { display: flex; flex-direction: column; gap: 6px; }
-    .field label { font-size: 10px; font-weight: 800; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
-    .field input, .field select { width: 100%; min-height: 42px; border-radius: 10px; border: 1px solid #CBD5E1; background: #FFFFFF; color: #0F172A; padding: 0 12px; font-size: 13px; font-weight: 500; outline: none; transition: .15s; }
-    .field input:focus, .field select:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
-    .field input:disabled, .field select:disabled { background: #F1F5F9; color: #94A3B8; cursor: not-allowed; border-color: #E2E8F0; }
-    
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .field-full { grid-column: 1 / -1; }
-    
-    /* Vigencia Toggle */
-    .validity-toggle { display: flex; background: #F1F5F9; border-radius: 10px; padding: 4px; border: 1px solid #E2E8F0; }
-    .validity-btn { flex: 1; text-align: center; padding: 8px; border-radius: 8px; font-size: 12px; font-weight: 700; color: #64748B; cursor: pointer; border: 1px solid transparent; transition: .15s; }
-    .validity-btn.active { background: #FFFFFF; color: #0F172A; border-color: #CBD5E1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    
-    .validity-temporary-section { background: #EEF2F6; padding: 16px; border-radius: 12px; margin-top: 12px; border: 1px solid #E2E8F0; }
-    .validity-note { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 12px; border-radius: 10px; font-size: 11px; line-height: 1.5; margin-top: 16px; }
-
-    /* Botones */
-    .btn-save { min-height: 42px; padding: 0 24px; border-radius: 10px; border: none; background: #0F172A; color: #FFF; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; }
-    .btn-save:hover { background: #1E293B; }
-    .btn-cancel { min-height: 42px; padding: 0 24px; border-radius: 10px; border: 1px solid #CBD5E1; background: #FFF; color: #475569; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; }
-    .btn-cancel:hover { background: #F1F5F9; }
-
-    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 14px 18px; border-radius: 10px; color: #FFF; font-size: 12px; font-weight: 700; background: var(--navy); border-left: 4px solid var(--gold); box-shadow: 0 16px 36px -22px rgba(10,51,91,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
-    .toast.is-visible { opacity: 1; transform: translateY(0); }
-    .toast.is-error { background: #991B1B; border-left-color: #FCA5A5; }
-
-    @media (max-width: 1280px) {
-        .roster-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    }
-    @media (max-width: 1050px) {
-        .roster-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .roster-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .schedule-metrics { grid-template-columns: repeat(2, 1fr); }
-    }
-    @media (max-width: 640px) {
-        body { padding: 10px; }
-        .roster-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .roster-toolbar { grid-template-columns: 1fr; }
-        .form-grid { grid-template-columns: 1fr; }
-        .roster-head { flex-direction: column; align-items: stretch; gap: 16px; }
-        .roster-head-actions { justify-content: flex-start; flex-wrap: wrap; }
-        .header-title-group { border-left: none; padding-left: 0; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 12px; margin-top: 4px; }
-    }
-</style>
-</head>
-<body>
-
-<div class="roster-shell">
-    <!-- HEADER CORPORATIVO -->
-    <div class="roster-head">
-        <div class="roster-head-left">
-            <div class="brand-logo">
-                <img src="logo.png" alt="Grupo Promass Logo" onerror="this.outerHTML='<h2 style=\'color:#0A335B; font-weight:900; font-size:20px; margin:0;\'>GRUPO <span style=\'color:#EAB52D;\'>PROMASS</span></h2>'">
-            </div>
-            <div class="header-title-group">
-                <h1 class="header-main-title">HeadCount</h1>
-                <span class="header-sub-title">Gestión de horarios</span>
-            </div>
-        </div>
-        <div class="roster-head-actions">
-            <span style="color:#83D5A6;font-size:9px;font-weight:800;margin-right:10px;display:flex;align-items:center;gap:6px;">
-                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#83D5A6;box-shadow:0 0 8px #83D5A6;"></span> Sincronizado
-            </span>
-            <button class="roster-head-btn secondary" onclick="downloadTemplate()">Plantilla</button>
-            <button class="roster-head-btn secondary" onclick="exportBaseCsv()">Exportar</button>
-            <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-            <button class="roster-head-btn secondary" onclick="openAbsenceModal()">+ Incapacidad/Vacaciones</button>
-            <button class="roster-head-btn secondary" onclick="openPeopleModal()">+ Directorio</button>
-            <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-            <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()">Carga Excel</button>
-            <button class="roster-head-btn white" onclick="openAgentModal()">+ Agente</button>
-            <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
-        </div>
-    </div>
-
-    <!-- KPIS -->
-    <div class="roster-kpis">
-        <div class="roster-kpi is-primary"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Nuevos Ingresos</div><div class="roster-kpi-value" id="kpiNewHires">—</div><div class="roster-kpi-detail">En entrenamiento</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Bajas del periodo</div><div class="roster-kpi-value" id="kpiTerminations">—</div><div class="roster-kpi-detail" id="kpiNetChange">—</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Rotación del periodo</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail" id="kpiAttritionDetail">Bajas ÷ HC al inicio × 100</div></div>
-    </div>
-
-    <!-- FILTROS -->
-    <div class="roster-toolbar">
-        <select id="filterCampaign" class="roster-select" onchange="updateDashboard()"><option value="">Todas las campañas</option></select>
-        <select id="filterSupervisor" class="roster-select" onchange="updateDashboard()"><option value="">Todos los supervisores</option></select>
-        <select id="filterCoordinator" class="roster-select" onchange="updateDashboard()"><option value="">Todos los coordinadores</option></select>
-        <select id="filterChannel" class="roster-select" onchange="updateDashboard()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
-        <select id="filterStatus" class="roster-select" onchange="updateDashboard()">
-            <option value="">Todos los estados</option>
-            <option value="Activo">Activo</option>
-            <option value="New Hire">New Hire</option>
-            <option value="Baja">Baja</option>
-            <option value="Vacación">Vacación</option>
-            <option value="Incapacidad">Incapacidad</option>
-        </select>
-        <input id="filterSearch" class="roster-input" placeholder="Buscar ID, nombre..." oninput="debounceUpdateDashboard()">
-    </div>
-
-    <div class="download-block">
-        <div>
-            <strong>Descargar roster por fechas</strong>
-            <p>Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <input id="rosterEffectiveStart" type="date" onchange="updateDashboard()">
-            <span style="color:#FFF;font-weight:700;">a</span>
-            <input id="rosterEffectiveEnd" type="date" onchange="updateDashboard()">
-            <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportHistoricalCsv()">Descargar CSV</button>
-        </div>
-    </div>
-
-    <div class="roster-content">
-        <div class="roster-agents-scroll">
-            <table class="roster-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;"><input type="checkbox"></th>
-                        <th>ID Agente</th><th>Nombre Completo</th><th>Puesto</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
-                        <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th>
-                        <th>Estado</th><th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody id="agentsBody">
-                    <tr><td colspan="17" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Cargando roster operativo…</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- CRONOGRAMA -->
-        <div class="schedule-section">
-            <div class="schedule-header">
-                <div>
-                    <div class="schedule-title">Distribución de horarios por franja</div>
-                    <div style="font-size:10px; color:#64748B; margin-top:4px;">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior.</div>
-                </div>
-                <div class="schedule-tabs" id="scheduleTabs"></div>
-            </div>
-            <div class="schedule-metrics">
-                <div class="schedule-metric"><div class="schedule-metric-label">Agentes que cubren</div><div class="schedule-metric-value" id="chartKpiAgents">0</div></div>
-                <div class="schedule-metric"><div class="schedule-metric-label">Pico simultáneo</div><div class="schedule-metric-value" id="chartKpiPeak">0 HC</div></div>
-                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura desde</div><div class="schedule-metric-value" id="chartKpiStart">—</div></div>
-                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura hasta</div><div class="schedule-metric-value" id="chartKpiEnd">—</div></div>
-            </div>
-            <div class="schedule-chart-container" id="scheduleChart">
-                <!-- Las barras se inyectan con JS -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Nuevo/Editar Agente -->
-<div id="agentModal" class="modal-backdrop hidden">
-  <div class="modal">
-    <div class="modal-header">
-      <div><h3 class="modal-title" id="agentModalTitle">Nuevo agente</h3></div>
-      <button class="modal-close" onclick="closeAgentModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <form id="agentForm" onsubmit="saveAgent(event)">
-        <input type="hidden" id="agentEditId">
+    if before is None:
+        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values + (now, now, actor))
+        _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[5], 'channel': values[6], 'supervisor': values[3], 'coordinator': values[4], 'hireDate': hire_date, 'isNewHire': bool(is_new_hire)}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
+    else:
+        if is_temp:
+            update_values = values[:11] + (
+                before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
+                before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
+            )
+        else:
+            update_values = values
+            
+        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (now, actor, old_id))
         
-        <div class="form-grid">
-          <div class="field"><label>ID Agente</label><input id="fldAgentId" required maxlength="40" placeholder="A-00001"></div>
-          <div class="field"><label>Nombre Completo</label><input id="fldFullName" maxlength="120" placeholder="Nombre Apellido"></div>
-          
-          <div class="field">
-            <label>Puesto / Rol</label>
-            <select id="fldRole" class="roster-select" style="font-size:13px; padding: 0 12px;">
-                <option value="Agente">Agente</option>
-                <option value="Supervisor">Supervisor</option>
-                <option value="Coordinador">Coordinador</option>
-                <option value="Staff QA">Staff QA</option>
-                <option value="Formador">Formador</option>
-                <option value="Administrativo">Administrativo</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Tipo de Agente</label>
-            <select id="fldIsNewHire" class="roster-select">
-                <option value="0">Operativo</option>
-                <option value="1">New Hire (En entrenamiento)</option>
-            </select>
-          </div>
-          
-          <div class="field">
-            <label>Supervisor</label>
-            <select id="fldSupervisor" class="roster-select"><option value="">Selecciona un supervisor</option></select>
-          </div>
-          <div class="field">
-            <label>Coordinador</label>
-            <select id="fldCoordinator" class="roster-select"><option value="">Selecciona un coordinador</option></select>
-          </div>
-          
-          <div class="field">
-            <label>Campaña</label>
-            <select id="fldCampaign" class="roster-select" required>
-                <option value="">Selecciona una campaña</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Canal</label>
-            <select id="fldChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select>
-          </div>
+        if is_temp:
+            start = _validate_date(validity.get('startDate'), 'fecha inicio')
+            end = _validate_date(validity.get('endDate'), 'fecha fin')
+            if start > end: raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
+            reason = str(validity.get('reason') or 'Cambio temporal')[:500]
+            
+            conn.execute("""
+                INSERT INTO hc_schedule_overrides (agent_id, start_date, end_date, schedules_json, reason, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (new_id, start, end, json.dumps(days), reason, now, actor))
+            
+            _log_history(conn, new_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
 
-          <div class="field hidden" id="wrapFldStatus"><label>Estado</label><select id="fldStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
-          <div class="field" id="wrapFldHireDate"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
-        </div>
+        after = _fetch_agent(conn, new_id)
+        if not is_temp and _diff_agents(before, after): 
+            _log_history(conn, new_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
+            
+    return _fetch_agent(conn, new_id)
 
-        <div class="form-grid" style="margin-top:16px;">
-          <div class="field"><label>Lunes</label><input id="fldLun" placeholder="DD-DD"></div>
-          <div class="field"><label>Martes</label><input id="fldMar" placeholder="DD-DD"></div>
-          <div class="field"><label>Miércoles</label><input id="fldMie" placeholder="DD-DD"></div>
-          <div class="field"><label>Jueves</label><input id="fldJue" placeholder="DD-DD"></div>
-          <div class="field"><label>Viernes</label><input id="fldVie" placeholder="DD-DD"></div>
-          <div class="field"><label>Sábado</label><input id="fldSab" placeholder="DD-DD"></div>
-          <div class="field"><label>Domingo</label><input id="fldDom" placeholder="DD-DD"></div>
-        </div>
+hc_bp = Blueprint('hc_manager', __name__)
 
-        <!-- Vigencia (Solo visible al editar) -->
-        <div id="validitySection" class="hidden" style="margin-top:24px;">
-          <div class="form-section-title">Vigencia del horario</div>
-          <p style="font-size:11px;color:#64748B;margin-bottom:12px;">Elige si el horario reemplaza la base permanentemente o si solo aplica durante un periodo específico.</p>
-          
-          <div class="validity-toggle">
-            <div id="btnValidityPermanent" class="validity-btn active" onclick="setValidity('permanent')">Permanente</div>
-            <div id="btnValidityTemporary" class="validity-btn" onclick="setValidity('temporary')">Temporal</div>
-          </div>
+@hc_bp.after_request
+def _cors(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
-          <div id="validityTemporarySection" class="validity-temporary-section hidden">
-            <div class="form-grid">
-              <div class="field"><label>Fecha Inicio</label><input id="fldValidityStart" type="date"></div>
-              <div class="field"><label>Fecha Fin</label><input id="fldValidityEnd" type="date"></div>
-              <div class="field field-full"><label>Motivo del cambio</label><input id="fldValidityReason" placeholder="Ej. cobertura temporal, capacitación, cambio de turno..."></div>
-            </div>
-          </div>
+@hc_bp.route('/', defaults={'path': ''})
+@hc_bp.route('/<path:path>')
+def _serve_dashboard(path):
+    if path.startswith('api/'): return jsonify({'error': 'API no encontrada'}), 404
+    if path and os.path.exists(os.path.join(BASE_DIR, path)): return send_from_directory(BASE_DIR, path)
+    target = os.path.join(BASE_DIR, HC_HTML_FILE)
+    if os.path.exists(target): return send_from_directory(BASE_DIR, HC_HTML_FILE)
+    return jsonify({'error': f'No se encontró {HC_HTML_FILE}'}), 404
 
-          <div class="validity-note" id="validityNote">
-            Temporal: el horario base no cambia. Este patrón solo aplica entre fecha inicio y fecha fin.
-          </div>
-        </div>
+@hc_bp.route('/api/hc/agents', methods=['GET'])
+def hc_list_agents():
+    _init_db()
+    campaign = request.args.get('campaign', '').strip()
+    channel = request.args.get('channel', '').strip()
+    supervisor = request.args.get('supervisor', '').strip()
+    coordinator = request.args.get('coordinator', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    search = request.args.get('search', '').strip().lower()
+    start_date = request.args.get('startDate', '').strip()
+    end_date = request.args.get('endDate', '').strip()
 
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeAgentModal()">Cancelar</button>
-      <button class="btn-save" id="agentSaveBtn" onclick="document.getElementById('agentForm').requestSubmit()">Guardar cambios</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Baja -->
-<div id="terminateModal" class="modal-backdrop hidden">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header">
-      <div><h3 class="modal-title" id="terminateTitle">Registrar baja</h3><p class="modal-sub" id="terminateSub"></p></div>
-      <button class="modal-close" onclick="closeTerminateModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="terminateAgentId">
-      <div class="form-grid">
-        <div class="field field-full"><label>Fecha de baja *</label><input id="terminateDate" type="date" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="terminateReason" maxlength="500"></div>
-        <div class="field field-full" style="flex-direction:row;align-items:center;gap:8px;"><input id="terminateRehireable" type="checkbox" checked style="width:16px;height:16px;"><label style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:#334155;">Elegible para recontratación</label></div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeTerminateModal()">Cancelar</button>
-      <button class="btn-save" id="terminateBtn" onclick="submitTermination()">Registrar baja</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Transferencia / Cambio Interno -->
-<div id="transferModal" class="modal-backdrop hidden">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header">
-      <div><h3 class="modal-title" id="transferTitle">Transferir agente</h3><p class="modal-sub" id="transferSub"></p></div>
-      <button class="modal-close" onclick="closeTransferModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="transferAgentId">
-      <div class="form-grid">
-        <div class="field field-full">
-          <label>Puesto / Rol Destino *</label>
-          <select id="transferRole" class="roster-select" required onchange="toggleTransferFields()" style="font-size:13px; padding: 0 12px;">
-            <option value="Agente">Agente</option>
-            <option value="Supervisor">Supervisor</option>
-            <option value="Coordinador">Coordinador</option>
-            <option value="Staff QA">Staff QA</option>
-            <option value="Formador">Formador</option>
-            <option value="Administrativo">Administrativo</option>
-          </select>
-        </div>
-      </div>
-      
-      <!-- Campos Operativos (se ocultan si es Administrativo) -->
-      <div id="transferOpsFields" class="form-grid" style="margin-top:16px;">
-        <div class="field field-full">
-          <label>Campaña destino *</label>
-          <select id="transferCampaign" class="roster-select" required>
-            <option value="">Selecciona una campaña</option>
-          </select>
-        </div>
-        <div class="field"><label>Canal destino</label><select id="transferChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
-        <div class="field"><label>Supervisor destino</label><select id="transferSupervisor" class="roster-select"></select></div>
-        <div class="field field-full"><label>Coordinador destino</label><select id="transferCoordinator" class="roster-select"></select></div>
-      </div>
-
-      <div class="form-grid" style="margin-top:16px;">
-        <div class="field field-full"><label>Fecha efectiva *</label><input id="transferDate" type="date" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="transferReason" maxlength="500" placeholder="Ej. Cierre de campaña, cambio a QA..."></div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeTransferModal()">Cancelar</button>
-      <button class="btn-save" id="transferBtn" onclick="submitTransfer()">Transferir</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Registrar Incapacidad/Vacaciones -->
-<div id="absenceModal" class="modal-backdrop hidden">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header">
-      <div><h3 class="modal-title">Registrar Ausencia</h3><p class="modal-sub">Ingresa vacaciones o incapacidades aprobadas.</p></div>
-      <button class="modal-close" onclick="closeAbsenceModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="field field-full">
-          <label>Agente *</label>
-          <select id="absenceAgent" class="roster-select" required>
-            <option value="">Selecciona un agente</option>
-          </select>
-        </div>
-        <div class="field field-full">
-          <label>Tipo de Ausencia *</label>
-          <select id="absenceType" class="roster-select" required>
-            <option value="vacation">Vacaciones Aprobadas</option>
-            <option value="incapacity">Incapacidad Aprobada</option>
-          </select>
-        </div>
-        <div class="field"><label>Fecha Inicio *</label><input id="absenceStart" type="date" required></div>
-        <div class="field"><label>Fecha Fin *</label><input id="absenceEnd" type="date" required></div>
-        <div class="field field-full"><label>Motivo / Folio</label><input id="absenceReason" maxlength="500" placeholder="Ej. Folio IMSS, vacaciones anuales..."></div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeAbsenceModal()">Cancelar</button>
-      <button class="btn-save" id="absenceBtn" onclick="submitAbsence()">Registrar Ausencia</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Directorio (Supervisores/Coordinadores) -->
-<div id="peopleModal" class="modal-backdrop hidden">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header">
-      <div><h3 class="modal-title">Directorio</h3><p class="modal-sub">Agrega nuevos supervisores o coordinadores.</p></div>
-      <button class="modal-close" onclick="closePeopleModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid">
-        <div class="field field-full">
-          <label>Rol *</label>
-          <select id="peopleRole" class="roster-select" required>
-            <option value="supervisor">Supervisor</option>
-            <option value="coordinator">Coordinador</option>
-          </select>
-        </div>
-        <div class="field field-full">
-          <label>Nombre Completo *</label>
-          <input id="peopleName" maxlength="120" placeholder="Nombre y apellidos" required>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closePeopleModal()">Cancelar</button>
-      <button class="btn-save" id="peopleBtn" onclick="submitPerson()">Guardar Persona</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast" class="toast"></div>
-
-<script>
-const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], debounceTimer: null, editingAgent: null, chartDay: 'Lunes' };
-
-const api = {
-  async get(url) {
-    const r = await fetch(url, {cache: 'no-store'});
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    return data;
-  },
-  async send(method, url, body) {
-    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {}) });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    return data;
-  }
-};
-
-function toast(msg, kind = 'success') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = `toast is-visible ${kind === 'error' ? 'is-error' : ''}`;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('is-visible'), 4000);
-}
-
-function debounceUpdateDashboard() {
-  clearTimeout(state.debounceTimer);
-  state.debounceTimer = setTimeout(updateDashboard, 300);
-}
-
-async function updateDashboard() {
-  await loadAgents();
-  await refreshMetrics();
-}
-
-async function refreshAll() {
-  await loadAgents();
-  await refreshMetrics();
-  await refreshFilters();
-}
-
-async function refreshFilters() {
-  try {
-    const [c, s, p] = await Promise.all([ api.get('/api/hc/campaigns'), api.get('/api/hc/supervisors'), api.get('/api/hc/people') ]);
-    state.campaigns = c.campaigns || [];
-    state.supervisors = s.supervisors || [];
-    
-    const people = p.people || [];
-    state.coordinators = [...new Set(people.filter(x=>x.role==='coordinator').map(x=>x.name))].sort();
-    
-    const setOptions = (id, items, defaultText) => {
-        const sel = document.getElementById(id);
-        if (!sel) return;
-        const current = sel.value;
-        sel.innerHTML = `<option value="">${defaultText}</option>` + items.map(x => `<option>${escape(x)}</option>`).join('');
-        sel.value = items.includes(current) ? current : '';
-    };
-    setOptions('filterCampaign', state.campaigns, 'Todas las campañas');
-    setOptions('filterSupervisor', state.supervisors, 'Todos los supervisores');
-    setOptions('filterCoordinator', state.coordinators, 'Todos los coordinadores');
-    
-    // Llenar los select del modal (filtros)
-    setOptions('fldCampaign', state.campaigns, 'Selecciona una campaña');
-    setOptions('transferCampaign', state.campaigns, 'Selecciona una campaña');
-    setOptions('fldSupervisor', state.supervisors, 'Selecciona un supervisor');
-    setOptions('transferSupervisor', state.supervisors, 'Selecciona un supervisor');
-    setOptions('fldCoordinator', state.coordinators, 'Selecciona un coordinador');
-    setOptions('transferCoordinator', state.coordinators, 'Selecciona un coordinador');
-    
-    // Llenar el select de agentes en el modal de ausencias
-    const agentOptions = state.agents.map(a => `<option value="${escapeAttr(a.agentId)}">${escape(a.agentId)} - ${escape(a.fullName)}</option>`).join('');
-    document.getElementById('absenceAgent').innerHTML = '<option value="">Selecciona un agente</option>' + agentOptions;
-    
-  } catch (e) { console.warn('refreshFilters:', e); }
-}
-
-async function refreshMetrics() {
-  const params = new URLSearchParams();
-  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
-  Object.entries(map).forEach(([k, id]) => {
-    const v = document.getElementById(id).value.trim();
-    if (v) params.set(k, v);
-  });
-  
-  const start = document.getElementById('rosterEffectiveStart').value;
-  const end = document.getElementById('rosterEffectiveEnd').value;
-  if (start) params.set('start', start);
-  if (end) params.set('end', end);
-
-  try {
-    const m = await api.get('/api/hc/metrics?' + params.toString());
-    document.getElementById('kpiActive').textContent = m.active;
-    document.getElementById('kpiNewHires').textContent = m.activeNewHires;
-    document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
-    
-    document.getElementById('kpiSupervisors').textContent = m.uniqueSupervisors || 0;
-    document.getElementById('kpiCoordinators').textContent = m.uniqueCoordinators || 0;
-    
-    document.getElementById('kpiTerminations').textContent = m.terminations;
-    document.getElementById('kpiNetChange').textContent = `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
-    const rotation = Number(m.attritionPercent ?? m.attrition ?? 0);
-    document.getElementById('kpiAttrition').textContent = `${rotation.toFixed(2)}%`;
-    const hcStart = Number(m.activeAtStart ?? 0);
-    const bajas = Number(m.terminations ?? 0);
-    document.getElementById('kpiAttritionDetail').textContent = `${bajas} bajas ÷ ${hcStart} HC inicial × 100`;
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function loadAgents() {
-  const params = new URLSearchParams();
-  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
-  Object.entries(map).forEach(([k, id]) => {
-    const v = document.getElementById(id).value.trim();
-    if (v) params.set(k, v);
-  });
-  
-  const start = document.getElementById('rosterEffectiveStart').value;
-  const end = document.getElementById('rosterEffectiveEnd').value;
-  if (start) params.set('startDate', start);
-  if (end) params.set('endDate', end);
-
-  try {
-    const data = await api.get('/api/hc/agents?' + params.toString());
-    state.agents = data.agents || [];
-    renderAgents();
-    renderTimelineChart();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function renderAgents() {
-  const body = document.getElementById('agentsBody');
-  if (!state.agents.length) {
-    body.innerHTML = '<tr><td colspan="17" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Sin colaboradores registrados para estos filtros.</td></tr>';
-    return;
-  }
-  
-  body.innerHTML = state.agents.map(a => {
-    const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
-    let statusBadge = isBaja ? '<span class="roster-status inactive">Baja</span>' : '<span class="roster-status active">Activo</span>';
-    let nhBadge = a.isNewHire ? '<span class="roster-status new-hire">New Hire</span>' : '';
-
-    const selectedStatus = document.getElementById('filterStatus').value;
-    if (selectedStatus === 'Vacación') statusBadge = '<span class="roster-status vacation">Vacación</span>';
-    if (selectedStatus === 'Incapacidad') statusBadge = '<span class="roster-status incapacity">Incapacidad</span>';
-
-    const sched = a.schedules || {};
-    const dayChip = k => {
-      const v = sched[k] || 'DD-DD';
-      const off = v === 'DD-DD' ? 'off' : '';
-      return `<td><span class="roster-schedule ${off}">${escape(v)}</span></td>`;
-    };
-
-    return `
-      <tr>
-        <td><input type="checkbox"></td>
-        <td><span class="roster-agent-id">${escape(a.agentId)}</span></td>
-        <td><div class="roster-agent-name" title="${escape(a.fullName)}">${escape(a.fullName || '—')}</div></td>
-        <td>${escape(a.role || 'Agente')}</td>
-        <td>${escape(a.supervisor || '—')}</td>
-        <td>${escape(a.coordinator || '—')}</td>
-        <td>${escape(a.campaign)}</td>
-        <td>${escape(a.channel)}</td>
-        ${dayChip('Lunes')}${dayChip('Martes')}${dayChip('Miércoles')}${dayChip('Jueves')}
-        ${dayChip('Viernes')}${dayChip('Sábado')}${dayChip('Domingo')}
-        <td>${statusBadge}${nhBadge}</td>
-        <td>
-          <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
-          ${a.terminationDate || a.status === 'Baja'
-              ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
-              : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
-                 <button class="roster-edit-btn" style="color:#991B1B" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
-        </td>
-      </tr>`;
-  }).join('');
-}
-
-/* =======================================================
-   LÓGICA DEL CRONOGRAMA (GRÁFICA DE BARRAS)
-   ======================================================= */
-function parseTime(t) {
-    if (!t) return null;
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-}
-
-function getScheduleCoverage(agent, dayIndex) {
-    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-    const prevDayIndex = (dayIndex + 6) % 7;
-    
-    let coverage = new Array(48).fill(0);
-    
-    const applyShift = (start, end) => {
-        for (let i = 0; i < 48; i++) {
-            let slotStart = i * 30;
-            let slotEnd = slotStart + 30;
-            if (Math.max(slotStart, start) < Math.min(slotEnd, end)) {
-                coverage[i] = 1;
-            }
-        }
-    };
-
-    // Turno de hoy
-    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
-    if (currentStr !== 'DD-DD') {
-        const [s, e] = currentStr.split('-');
-        let start = parseTime(s);
-        let end = parseTime(e);
-        if (end <= start) end += 1440; // Cruza medianoche
+    sql = "SELECT * FROM hc_agents WHERE 1=1"
+    args = []
+    if campaign:
+        sql += " AND campaign=?"
+        args.append(campaign)
+    if channel:
+        sql += " AND channel=?"
+        args.append(channel)
+    if supervisor:
+        sql += " AND supervisor=?"
+        args.append(supervisor)
+    if coordinator:
+        sql += " AND coordinator=?"
+        args.append(coordinator)
+    if status_filter == 'Activo':
+        sql += " AND status='Activo'"
+    elif status_filter == 'Baja':
+        sql += " AND status='Baja'"
+    elif status_filter == 'New Hire':
+        sql += " AND status='Activo' AND is_new_hire=1"
+    elif status_filter == 'Operativo':
+        sql += " AND status='Activo' AND is_new_hire=0"
         
-        let sClamped = Math.max(0, start);
-        let eClamped = Math.min(1440, end);
-        if (sClamped < eClamped) applyShift(sClamped, eClamped);
-    }
-    
-    // Turno del día anterior (que puede arrastrar horas hacia hoy)
-    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
-    if (prevStr !== 'DD-DD') {
-        const [s, e] = prevStr.split('-');
-        let start = parseTime(s);
-        let end = parseTime(e);
-        if (end <= start) end += 1440; // Cruza medianoche
+    if start_date and end_date:
+        sql += " AND (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date >= ?)"
+        args.extend([end_date, start_date])
         
-        // Si el turno del día anterior terminó después de las 24:00, arrastra a hoy
-        if (end > 1440) {
-            let sCarry = 0;
-            let eCarry = end - 1440;
-            applyShift(sCarry, eCarry);
-        }
-    }
+    sql += " ORDER BY campaign, role, supervisor, full_name, agent_id"
+
+    conn = _conn()
+    try:
+        rows = [_row_to_agent(r) for r in conn.execute(sql, args).fetchall()]
+        
+        if status_filter in ('Vacación', 'Incapacidad'):
+            today = _today()
+            absences = {r['agent_id']: r['absence_type'] for r in conn.execute("SELECT agent_id, absence_type FROM hc_absences WHERE start_date <= ? AND end_date >= ? AND status='approved'", (today, today))}
+            filtered_rows = []
+            for r in rows:
+                if r['status'] != 'Activo': continue
+                abs_type = absences.get(r['agentId'])
+                if status_filter == 'Vacación' and abs_type == 'vacation': filtered_rows.append(r)
+                elif status_filter == 'Incapacidad' and abs_type == 'incapacity': filtered_rows.append(r)
+            rows = filtered_rows
+    finally:
+        conn.close()
+
+    if search:
+        rows = [r for r in rows if search in f"{r['agentId']} {r['fullName']} {r['role']} {r['supervisor']} {r['coordinator']} {r['campaign']} {r['email']}".lower()]
+
+    return jsonify({'agents': rows, 'count': len(rows)}), 200
+
+@hc_bp.route('/api/hc/agents/<agent_id>', methods=['GET'])
+def hc_get_agent(agent_id):
+    _init_db()
+    conn = _conn()
+    try: agent = _fetch_agent(conn, agent_id)
+    finally: conn.close()
+    if not agent: return jsonify({'error': 'Agente no encontrado.'}), 404
+    return jsonify({'agent': agent}), 200
+
+@hc_bp.route('/api/hc/agents', methods=['POST'])
+def hc_create_agent():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.pop('actorMode', 'operaciones'))[:80]
+        agent_id = str(payload.get('agentId') or '').strip()
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                agent = _save_agent_tx(conn, agent_id, payload, actor, allow_create=True)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True, 'agent': agent}), 200
+    except sqlite3.IntegrityError: return jsonify({'error': 'Ya existe un agente con ese ID.'}), 409
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo crear: {e}'}), 500
+
+@hc_bp.route('/api/hc/agents/<agent_id>', methods=['PUT'])
+def hc_update_agent(agent_id):
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.pop('actorMode', 'operaciones'))[:80]
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                agent = _save_agent_tx(conn, agent_id, payload, actor, allow_create=False)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True, 'agent': agent}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo actualizar: {e}'}), 500
+
+@hc_bp.route('/api/hc/agents/<agent_id>/terminate', methods=['POST'])
+def hc_terminate_agent(agent_id):
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        termination_date = _validate_date(payload.get('terminationDate'), 'fecha de baja')
+        reason = str(payload.get('reason') or '')[:500]
+        rehireable = 1 if payload.get('rehireable', True) else 0
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                before = _fetch_agent(conn, agent_id)
+                if not before: raise ValueError('Agente no encontrado.')
+                if before.get('terminationDate'): raise ValueError('El agente ya tiene una baja registrada.')
+                new_status = 'Baja' if termination_date <= _today() else 'Activo'
+                conn.execute("UPDATE hc_agents SET status=?, termination_date=?, termination_reason=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_status, termination_date, reason, _now(), actor, agent_id))
+                conn.execute("INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)", (agent_id, termination_date, reason, rehireable, _now(), actor))
+                _log_history(conn, agent_id, 'agent_terminated', before, {'terminationDate': termination_date, 'reason': reason, 'rehireable': bool(rehireable), 'appliesNow': termination_date <= _today()}, reason, termination_date, actor)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        conn2 = _conn()
+        try: agent = _fetch_agent(conn2, agent_id)
+        finally: conn2.close()
+        return jsonify({'ok': True, 'agent': agent}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo registrar la baja: {e}'}), 500
+
+@hc_bp.route('/api/hc/agents/<agent_id>/reactivate', methods=['POST'])
+def hc_reactivate_agent(agent_id):
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        new_hire = payload.get('hireDate')
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                before = _fetch_agent(conn, agent_id)
+                if not before: raise ValueError('Agente no encontrado.')
+                if not before.get('terminationDate') and before.get('status') != 'Baja': raise ValueError('El agente ya está activo.')
+                new_hire = _validate_date(new_hire, 'fecha de reingreso') if new_hire else _today()
+                conn.execute("UPDATE hc_agents SET status='Activo', termination_date=NULL, termination_reason='', hire_date=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_hire, _now(), actor, agent_id))
+                _log_history(conn, agent_id, 'agent_reactivated', before, {'hireDate': new_hire}, str(payload.get('reason') or 'Reactivación'), new_hire, actor)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        conn2 = _conn()
+        try: agent = _fetch_agent(conn2, agent_id)
+        finally: conn2.close()
+        return jsonify({'ok': True, 'agent': agent}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo reactivar: {e}'}), 500
+
+@hc_bp.route('/api/hc/agents/<agent_id>/transfer', methods=['POST'])
+def hc_transfer_agent(agent_id):
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        to_campaign = str(payload.get('toCampaign') or '').strip()
+        to_channel = _normalize_channel(payload.get('toChannel') or '')
+        to_supervisor = str(payload.get('toSupervisor') or '').strip()
+        to_coordinator = str(payload.get('toCoordinator') or '').strip()
+        to_role = str(payload.get('toRole') or 'Agente').strip()
+        effective = _validate_date(payload.get('effectiveDate'), 'fecha efectiva')
+        reason = str(payload.get('reason') or '')[:500]
+
+        is_admin = any(term in to_role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
+        
+        if not to_campaign and not is_admin: 
+            raise ValueError('La campaña destino es obligatoria.')
+        
+        if is_admin and not to_campaign:
+            to_campaign = 'Administrativo'
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                before = _fetch_agent(conn, agent_id)
+                if not before: raise ValueError('Agente no encontrado.')
+                if (before['campaign'] == to_campaign and before['channel'] == to_channel and 
+                    before['supervisor'] == to_supervisor and before['coordinator'] == to_coordinator and
+                    before['role'] == to_role):
+                    raise ValueError('No hay cambios en la asignación actual.')
+
+                _ensure_people_catalog(conn, to_supervisor, to_coordinator)
+
+                conn.execute("UPDATE hc_agents SET campaign=?, channel=?, supervisor=?, coordinator=?, role=?, updated_at=?, updated_by=? WHERE agent_id=?", 
+                             (to_campaign, to_channel, to_supervisor, to_coordinator, to_role, _now(), actor, agent_id))
+                
+                conn.execute("""
+                    INSERT INTO hc_transfers (agent_id, from_campaign, to_campaign, from_channel, to_channel, from_supervisor, to_supervisor, from_coordinator, to_coordinator, from_role, to_role, effective_date, reason, created_at, created_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (agent_id, before['campaign'], to_campaign, before['channel'], to_channel, before['supervisor'], to_supervisor, before['coordinator'], to_coordinator, before['role'], to_role, effective, reason, _now(), actor))
+                
+                _log_history(conn, agent_id, 'agent_transferred', before, {
+                    'fromCampaign': before['campaign'], 'toCampaign': to_campaign, 
+                    'fromChannel': before['channel'], 'toChannel': to_channel,
+                    'fromSupervisor': before['supervisor'], 'toSupervisor': to_supervisor,
+                    'fromCoordinator': before['coordinator'], 'toCoordinator': to_coordinator,
+                    'fromRole': before['role'], 'toRole': to_role,
+                    'effectiveDate': effective
+                }, reason, effective, actor)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        conn2 = _conn()
+        try: agent = _fetch_agent(conn2, agent_id)
+        finally: conn2.close()
+        return jsonify({'ok': True, 'agent': agent}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo transferir: {e}'}), 500
+
+@hc_bp.route('/api/hc/absences', methods=['GET'])
+def hc_list_absences():
+    _init_db()
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT a.*, ag.full_name 
+            FROM hc_absences a
+            JOIN hc_agents ag ON ag.agent_id = a.agent_id
+            ORDER BY a.start_date DESC LIMIT 1000
+        """).fetchall()]
+        return jsonify({'absences': rows}), 200
+    finally:
+        conn.close()
+
+@hc_bp.route('/api/hc/absences', methods=['POST'])
+def hc_create_absence():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        agent_id = str(payload.get('agentId') or '').strip()
+        abs_type = str(payload.get('absenceType') or '').strip()
+        start = _validate_date(payload.get('startDate'), 'fecha inicio')
+        end = _validate_date(payload.get('endDate'), 'fecha fin')
+        reason = str(payload.get('reason') or '')[:500]
+        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+
+        if not agent_id or abs_type not in ('vacation', 'incapacity'):
+            raise ValueError('Agente y Tipo son obligatorios.')
+        if start > end:
+            raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                if not _fetch_agent(conn, agent_id):
+                    raise ValueError('Agente no encontrado.')
+                
+                now = _now()
+                conn.execute("""
+                    INSERT INTO hc_absences (agent_id, absence_type, start_date, end_date, status, reason, created_at, created_by)
+                    VALUES (?, ?, ?, ?, 'approved', ?, ?, ?)
+                """, (agent_id, abs_type, start, end, reason, now, actor))
+                
+                _log_history(conn, agent_id, f'{abs_type}_created', None, {
+                    'startDate': start, 'endDate': end, 'reason': reason
+                }, reason, start, actor)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo registrar: {e}'}), 500
+
+@hc_bp.route('/api/hc/people', methods=['GET'])
+def hc_list_people():
+    _init_db()
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT role, name FROM hc_people_catalog").fetchall()]
+        seen = {(r['role'], r['name']) for r in rows}
+        
+        for r in conn.execute("SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> ''"):
+            if ('supervisor', r[0]) not in seen:
+                rows.append({'role': 'supervisor', 'name': r[0]})
+                seen.add(('supervisor', r[0]))
+                
+        for r in conn.execute("SELECT DISTINCT coordinator FROM hc_agents WHERE coordinator <> ''"):
+            if ('coordinator', r[0]) not in seen:
+                rows.append({'role': 'coordinator', 'name': r[0]})
+                seen.add(('coordinator', r[0]))
+                
+        rows.sort(key=lambda x: (x['role'], x['name']))
+        return jsonify({'people': rows}), 200
+    finally:
+        conn.close()
+
+@hc_bp.route('/api/hc/people', methods=['POST'])
+def hc_create_person():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        role = str(payload.get('role') or '').strip()
+        name = str(payload.get('name') or '').strip()
+        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+
+        if role not in ('supervisor', 'coordinator') or not name:
+            raise ValueError('Rol y Nombre son obligatorios.')
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                now = _now()
+                conn.execute("INSERT INTO hc_people_catalog (role, name, created_at, created_by) VALUES (?, ?, ?, ?)", (role, name, now, actor))
+                conn.commit()
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                raise ValueError('Ese nombre ya está registrado.')
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo crear: {e}'}), 500
+
+@hc_bp.route('/api/hc/agents/<agent_id>/history', methods=['GET'])
+def hc_agent_history(agent_id):
+    _init_db()
+    conn = _conn()
+    try: rows = conn.execute("SELECT * FROM hc_history WHERE agent_id=? ORDER BY id DESC LIMIT 500", (agent_id,)).fetchall()
+    finally: conn.close()
+    return jsonify({'history': [{'id': r['id'], 'agentId': r['agent_id'], 'changeType': r['change_type'], 'before': json.loads(r['before_json']) if r['before_json'] else None, 'after': json.loads(r['after_json']) if r['after_json'] else None, 'reason': r['reason'] or '', 'effectiveDate': r['effective_date'], 'changedAt': r['changed_at'], 'changedBy': r['changed_by'] or ''} for r in rows]}), 200
+
+@hc_bp.route('/api/hc/history', methods=['GET'])
+def hc_global_history():
+    _init_db()
+    limit = max(1, min(int(request.args.get('limit', 500)), 2000))
+    conn = _conn()
+    try: rows = conn.execute("SELECT * FROM hc_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    finally: conn.close()
+    return jsonify({'history': [{'id': r['id'], 'agentId': r['agent_id'], 'changeType': r['change_type'], 'before': json.loads(r['before_json']) if r['before_json'] else None, 'after': json.loads(r['after_json']) if r['after_json'] else None, 'reason': r['reason'] or '', 'effectiveDate': r['effective_date'], 'changedAt': r['changed_at'], 'changedBy': r['changed_by'] or ''} for r in rows]}), 200
+
+@hc_bp.route('/api/hc/metrics', methods=['GET'])
+def hc_metrics():
+    _init_db()
+    today = _today()
+    default_start = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    try:
+        start = _validate_date(request.args.get('start') or default_start, 'start')
+        end = _validate_date(request.args.get('end') or today, 'end')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    if start > end:
+        return jsonify({'error': 'La fecha inicial no puede ser posterior a la fecha final.'}), 400
+
+    campaign = request.args.get('campaign', '').strip()
+    channel = request.args.get('channel', '').strip()
+    supervisor = request.args.get('supervisor', '').strip()
+    coordinator = request.args.get('coordinator', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    search = request.args.get('search', '').strip().lower()
+
+    filters = []
+    args = []
+    if campaign:
+        filters.append("a.campaign=?")
+        args.append(campaign)
+    if channel:
+        filters.append("a.channel=?")
+        args.append(channel)
+    if supervisor:
+        filters.append("a.supervisor=?")
+        args.append(supervisor)
+    if coordinator:
+        filters.append("a.coordinator=?")
+        args.append(coordinator)
+    if status_filter == 'Activo':
+        filters.append("a.status='Activo'")
+    elif status_filter == 'Baja':
+        filters.append("a.status='Baja'")
+    if search:
+        filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
+        args.extend([f"%{search}%", f"%{search}%"])
     
-    return coverage;
-}
+    agent_where = (" AND " + " AND ".join(filters)) if filters else ""
 
-function renderTimelineChart() {
-    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-    const tabsContainer = document.getElementById('scheduleTabs');
-    const chartContainer = document.getElementById('scheduleChart');
+    conn = _conn()
+    try:
+        active = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        unique_supervisors = conn.execute(
+            "SELECT COUNT(DISTINCT a.supervisor) FROM hc_agents a WHERE a.status='Activo' AND a.supervisor <> '' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        unique_coordinators = conn.execute(
+            "SELECT COUNT(DISTINCT a.coordinator) FROM hc_agents a WHERE a.status='Activo' AND a.coordinator <> '' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        active_new_hires = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' AND a.is_new_hire=1 "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        term_query_parts = []
+        term_args = []
+        
+        q1 = "SELECT t.agent_id AS agent_id FROM hc_terminations t JOIN hc_agents a ON a.agent_id = t.agent_id WHERE t.termination_date BETWEEN ? AND ?"
+        q1_args = [start, end]
+        if agent_where:
+            q1 += agent_where
+            q1_args.extend(args)
+        term_query_parts.append(q1)
+        term_args.extend(q1_args)
+
+        q2 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.termination_date BETWEEN ? AND ?"
+        q2_args = [start, end]
+        if agent_where:
+            q2 += agent_where
+            q2_args.extend(args)
+        term_query_parts.append(q2)
+        term_args.extend(q2_args)
+
+        month_start = datetime.now().strftime('%Y-%m-01')
+        next_month_start = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m-%d')
+        if start < next_month_start and end >= month_start:
+            q3 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.status = 'Baja' AND a.termination_date IS NULL"
+            q3_args = []
+            if agent_where:
+                q3 += agent_where
+                q3_args.extend(args)
+            term_query_parts.append(q3)
+            term_args.extend(q3_args)
+
+        termination_sql = "SELECT COUNT(DISTINCT agent_id) FROM (" + " UNION ".join(term_query_parts) + ")"
+        terminations = conn.execute(termination_sql, term_args).fetchone()[0]
+
+        new_hires = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where,
+            [start, end] + args
+        ).fetchone()[0]
+
+        transfer_filters = []
+        transfer_args = [start, end]
+        if campaign:
+            transfer_filters.append("(t.from_campaign=? OR t.to_campaign=?)")
+            transfer_args.extend([campaign, campaign])
+        if channel:
+            transfer_filters.append("(t.from_channel=? OR t.to_channel=?)")
+            transfer_args.extend([channel, channel])
+        if supervisor:
+            transfer_filters.append("(t.from_supervisor=? OR t.to_supervisor=?)")
+            transfer_args.extend([supervisor, supervisor])
+        if coordinator:
+            transfer_filters.append("(t.from_coordinator=? OR t.to_coordinator=?)")
+            transfer_args.extend([coordinator, coordinator])
+        if search:
+            transfer_filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
+            transfer_args.extend([f"%{search}%", f"%{search}%"])
+        
+        transfer_sql = "SELECT COUNT(*) FROM hc_transfers t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id WHERE t.effective_date BETWEEN ? AND ?"
+        if transfer_filters:
+            transfer_sql += " AND " + " AND ".join(transfer_filters)
+        transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
+
+        by_campaign = [dict(r) for r in conn.execute(
+            "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
+            "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
+            + agent_where + " GROUP BY a.campaign, a.channel ORDER BY count DESC",
+            [today] + args
+        ).fetchall()]
+
+        active_at_start = active + terminations - new_hires
+        if active_at_start <= 0:
+            active_at_start = active
+            
+        attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start > 0 else 0.0
+        net_change = new_hires - terminations
+
+    finally:
+        conn.close()
+
+    return jsonify({
+        'active': active, 'activeAtStart': active_at_start, 'byCampaign': by_campaign,
+        'activeNewHires': active_new_hires,
+        'uniqueSupervisors': unique_supervisors,
+        'uniqueCoordinators': unique_coordinators,
+        'terminations': terminations, 'newHires': new_hires, 'transfers': transfers,
+        'attrition': attrition, 'attritionPercent': attrition, 'netChange': net_change, 'periodStart': start,
+        'periodEnd': end, 'asOf': today
+    }), 200
+
+@hc_bp.route('/api/hc/campaigns', methods=['GET'])
+def hc_list_campaigns():
+    _init_db()
+    conn = _conn()
+    try: rows = [r['campaign'] for r in conn.execute("SELECT DISTINCT campaign FROM hc_agents WHERE campaign <> '' ORDER BY campaign").fetchall()]
+    finally: conn.close()
+    return jsonify({'campaigns': rows}), 200
+
+@hc_bp.route('/api/hc/supervisors', methods=['GET'])
+def hc_list_supervisors():
+    _init_db()
+    conn = _conn()
+    try: 
+        rows = [r[0] for r in conn.execute("""
+            SELECT name FROM hc_people_catalog WHERE role='supervisor'
+            UNION
+            SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> ''
+            ORDER BY 1
+        """).fetchall()]
+    finally: conn.close()
+    return jsonify({'supervisors': rows}), 200
+
+@hc_bp.route('/api/hc/template', methods=['GET'])
+def hc_download_template():
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'New Hire', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
     
-    tabsContainer.innerHTML = days.map(d => `
-        <button class="schedule-tab ${state.chartDay === d ? 'active' : ''}" onclick="changeChartDay('${d}')">${d.slice(0,3)}</button>
-    `).join('');
-
-    const dayIndex = days.indexOf(state.chartDay);
-    // MEJORA: Solo contar a los que su rol sea 'Agente' para la cobertura operativa
-    const activeAgents = state.agents.filter(a => a.status === 'Activo' && a.role === 'Agente');
-
-    let totalCoverage = new Array(48).fill(0);
-    let agentsCovering = 0;
-
-    activeAgents.forEach(agent => {
-        const cov = getScheduleCoverage(agent, dayIndex);
-        let hasShift = false;
-        cov.forEach((val, i) => {
-            if (val) { totalCoverage[i]++; hasShift = true; }
-        });
-        if (hasShift) agentsCovering++;
-    });
-
-    const peak = Math.max(...totalCoverage);
-    let firstShift = totalCoverage.findIndex(v => v > 0);
-    let lastShift = -1;
-    for (let i = 47; i >= 0; i--) { if (totalCoverage[i] > 0) { lastShift = i; break; } }
+    hoy_ddmmyyyy = datetime.now().strftime('%d/%m/%Y')
     
-    const formatTime = (slotIdx) => {
-        const h = Math.floor((slotIdx * 30) / 60);
-        const m = (slotIdx * 30) % 60;
-        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-    };
+    writer.writerow([
+        'A-00001', 'Nombre Apellido', 'Agente', 'No', 'Supervisor 1', 'Coordinador 1', 
+        'Coppel Servicios', 'Llamadas', 'Activo', hoy_ddmmyyyy, 
+        '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', 
+        'DD-DD', 'DD-DD'
+    ])
+    return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name='plantilla_hc.csv')
 
-    document.getElementById('chartKpiAgents').textContent = agentsCovering;
-    document.getElementById('chartKpiPeak').textContent = `${peak} HC`;
-    document.getElementById('chartKpiStart').textContent = firstShift >= 0 ? formatTime(firstShift) : '—';
-    document.getElementById('chartKpiEnd').textContent = lastShift >= 0 ? formatTime(lastShift + 1) : '—';
+@hc_bp.route('/api/hc/export', methods=['GET'])
+def hc_export_csv():
+    try:
+        _init_db()
+        mode = request.args.get('mode', 'base')
+        start_date_str = request.args.get('startDate', '').strip()
+        end_date_str = request.args.get('endDate', '').strip()
 
-    chartContainer.innerHTML = totalCoverage.map((count, i) => {
-        const heightPercent = peak > 0 ? (count / peak) * 100 : 0;
-        const showLabel = i % 4 === 0;
-        return `
-            <div class="chart-bar-wrap" title="${formatTime(i)} - ${formatTime(i+1)}: ${count} agentes">
-                ${count > 0 ? `<span class="chart-bar-value">${count}</span>` : ''}
-                <div class="chart-bar" style="height: ${Math.max(2, heightPercent)}%; opacity: ${count === 0 ? '0.1' : '1'}"></div>
-                ${showLabel ? `<span class="chart-bar-label">${formatTime(i)}</span>` : ''}
-            </div>
-        `;
-    }).join('');
-}
+        campaign_filter = request.args.get('campaign', '').strip()
+        channel_filter = request.args.get('channel', '').strip()
+        supervisor_filter = request.args.get('supervisor', '').strip()
+        coordinator_filter = request.args.get('coordinator', '').strip()
+        status_filter = request.args.get('status', '').strip()
+        search = request.args.get('search', '').strip().lower()
 
-function changeChartDay(day) {
-    state.chartDay = day;
-    renderTimelineChart();
-}
+        conn = _conn()
+        try:
+            agents = [_row_to_agent(r) for r in conn.execute("SELECT * FROM hc_agents ORDER BY agent_id").fetchall()]
+            transfers = [dict(r) for r in conn.execute("SELECT * FROM hc_transfers ORDER BY effective_date").fetchall()]
+            overrides = [dict(r) for r in conn.execute("SELECT * FROM hc_schedule_overrides ORDER BY start_date").fetchall()]
+            absences = [dict(r) for r in conn.execute("SELECT * FROM hc_absences ORDER BY start_date").fetchall()]
+        finally:
+            conn.close()
 
-/* ======================================================= */
+        transfers_by_agent = defaultdict(list)
+        for t in transfers: transfers_by_agent[t['agent_id']].append(t)
+        
+        overrides_by_agent = defaultdict(list)
+        for o in overrides: overrides_by_agent[o['agent_id']].append(o)
+        
+        absences_by_agent = defaultdict(list)
+        for a in absences: absences_by_agent[a['agent_id']].append(a)
 
-function escape(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
-function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
 
-function setValidity(type) {
-    document.getElementById('btnValidityPermanent').classList.toggle('active', type === 'permanent');
-    document.getElementById('btnValidityTemporary').classList.toggle('active', type === 'temporary');
-    document.getElementById('validityTemporarySection').classList.toggle('hidden', type === 'permanent');
-    document.getElementById('validityNote').style.display = type === 'permanent' ? 'none' : 'block';
-}
+        if mode == 'base':
+            writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+            
+            for r in agents:
+                if campaign_filter and r['campaign'] != campaign_filter: continue
+                if channel_filter and r['channel'] != channel_filter: continue
+                if supervisor_filter and r['supervisor'] != supervisor_filter: continue
+                if coordinator_filter and r['coordinator'] != coordinator_filter: continue
+                if status_filter and r['displayStatus'] != status_filter: continue
+                if search and search not in f"{r['agentId']} {r['fullName']} {r['role']} {r['supervisor']} {r['coordinator']} {r['campaign']}".lower(): continue
 
-async function openAgentModal(agentId = null) {
-  await refreshFilters(); // Fuerza la actualización de las listas
+                s = r['schedules']
+                writer.writerow([
+                    r['agentId'], r['fullName'], r['role'], r['supervisor'], r['coordinator'], 
+                    r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', 
+                    r['terminationDate'] or '', r['terminationReason'] or '', 
+                    s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo']
+                ])
+        else:
+            if not start_date_str or not end_date_str:
+                return jsonify({'error': 'Faltan fechas para exportar el histórico.'}), 400
 
-  state.editingAgent = agentId;
-  document.getElementById('agentEditId').value = agentId || '';
-  const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
-  const fld = id => document.getElementById(id);
+            try:
+                start_date = datetime.strptime(start_date_str[:10], '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str[:10], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Formato de fecha inválido.'}), 400
 
-  if (a) {
-    document.getElementById('agentModalTitle').textContent = `Editar · ${a.fullName || 'Sin nombre'} (${a.agentId})`;
-  } else {
-    document.getElementById('agentModalTitle').textContent = 'Nuevo agente';
-  }
+            writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+            
+            current_date = start_date
+            while current_date <= end_date:
+                date_str = current_date.strftime('%Y-%m-%d')
+                
+                for a in agents:
+                    h_date = parse_db_date(a['hireDate'])
+                    if h_date and h_date > current_date:
+                        continue
+                    
+                    t_date = parse_db_date(a['terminationDate'])
+                    if t_date and t_date < current_date:
+                        continue
+                    
+                    hist_campaign = a['campaign']
+                    hist_supervisor = a['supervisor']
+                    hist_coordinator = a['coordinator']
+                    hist_channel = a['channel']
+                    hist_role = a['role']
+                    
+                    for t in transfers_by_agent[a['agentId']]:
+                        t_eff_date = parse_db_date(t['effective_date'])
+                        if t_eff_date and t_eff_date <= current_date:
+                            hist_campaign = t['to_campaign']
+                            hist_supervisor = t['to_supervisor']
+                            hist_coordinator = t['to_coordinator']
+                            hist_channel = t['to_channel']
+                            hist_role = t['to_role']
 
-  fld('fldAgentId').value = a?.agentId || ''; 
-  fld('fldAgentId').disabled = false; 
-  
-  fld('fldFullName').value = a?.fullName || ''; 
-  
-  // Lógica segura para el SELECT de Puesto/Rol
-  const roleSelect = fld('fldRole');
-  const roleVal = a?.role || 'Agente';
-  if (!Array.from(roleSelect.options).some(opt => opt.value === roleVal)) {
-      const newOpt = document.createElement('option');
-      newOpt.value = roleVal;
-      newOpt.text = roleVal;
-      roleSelect.add(newOpt);
-  }
-  roleSelect.value = roleVal;
+                    if campaign_filter and hist_campaign != campaign_filter: continue
+                    if channel_filter and hist_channel != channel_filter: continue
+                    if supervisor_filter and hist_supervisor != supervisor_filter: continue
+                    if coordinator_filter and hist_coordinator != coordinator_filter: continue
+                    if search and search not in f"{a['agentId']} {a['fullName']} {hist_role} {hist_supervisor} {hist_coordinator} {hist_campaign}".lower(): continue
 
-  fld('fldIsNewHire').value = a?.isNewHire ? '1' : '0';
-  fld('fldSupervisor').value = a?.supervisor || '';
-  fld('fldCoordinator').value = a?.coordinator || ''; 
-  fld('fldCampaign').value = a?.campaign || '';
-  fld('fldChannel').value = a?.channel || 'Llamadas'; 
-  fld('fldStatus').value = a?.status || 'Activo';
-  fld('fldHireDate').value = (a?.hireDate || '').slice(0, 10);
-  
-  const sched = a?.schedules || {};
-  fld('fldLun').value = sched.Lunes || 'DD-DD'; fld('fldMar').value = sched.Martes || 'DD-DD';
-  fld('fldMie').value = sched['Miércoles'] || 'DD-DD'; fld('fldJue').value = sched.Jueves || 'DD-DD';
-  fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
-  fld('fldDom').value = sched.Domingo || 'DD-DD';
-  
-  const isEdit = !!agentId;
-  fld('fldCampaign').disabled = isEdit;
-  fld('fldChannel').disabled = isEdit;
-  fld('fldStatus').disabled = isEdit;
-  fld('fldHireDate').disabled = isEdit;
-  fld('fldSupervisor').disabled = isEdit;
-  fld('fldCoordinator').disabled = isEdit;
-  fld('fldRole').disabled = isEdit;
-  // fld('fldIsNewHire').disabled = isEdit; // Desbloqueado para permitir cambio de New Hire a Operativo
+                    hist_schedules = dict(a['schedules'])
+                    for o in overrides_by_agent[a['agentId']]:
+                        o_start = parse_db_date(o['start_date'])
+                        o_end = parse_db_date(o['end_date'])
+                        if o_start and o_end and o_start <= current_date <= o_end:
+                            hist_schedules = json.loads(o['schedules_json'])
+                            break
 
-  document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
+                    hist_status = 'Activo'
+                    term_reason = ''
 
-  if (isEdit) {
-    document.getElementById('validitySection').classList.remove('hidden');
-    setValidity('permanent');
-    fld('fldValidityStart').value = new Date().toISOString().slice(0, 10);
-    fld('fldValidityEnd').value = new Date().toISOString().slice(0, 10);
-    fld('fldValidityReason').value = '';
-  } else {
-    document.getElementById('validitySection').classList.add('hidden');
-  }
+                    if t_date and t_date == current_date:
+                        hist_status = 'Baja'
+                        term_reason = a['terminationReason']
+                    else:
+                        for abs in absences_by_agent[a['agentId']]:
+                            abs_start = parse_db_date(abs['start_date'])
+                            abs_end = parse_db_date(abs['end_date'])
+                            if abs_start and abs_end and abs_start <= current_date <= abs_end and abs['status'] == 'approved':
+                                hist_status = 'Vacación' if abs['absence_type'] == 'vacation' else 'Incapacidad'
+                                break
 
-  document.getElementById('agentModal').classList.remove('hidden');
-}
+                    if status_filter and hist_status != status_filter: continue
 
-function closeAgentModal() { document.getElementById('agentModal').classList.add('hidden'); state.editingAgent = null; }
+                    writer.writerow([
+                        date_str, a['agentId'], a['fullName'], hist_role, hist_supervisor, hist_coordinator,
+                        hist_campaign, hist_channel, hist_status, term_reason,
+                        hist_schedules.get('Lunes', ''), hist_schedules.get('Martes', ''), hist_schedules.get('Miércoles', ''),
+                        hist_schedules.get('Jueves', ''), hist_schedules.get('Viernes', ''), hist_schedules.get('Sábado', ''),
+                        hist_schedules.get('Domingo', '')
+                    ])
+                current_date += timedelta(days=1)
 
-async function saveAgent(event) {
-  event.preventDefault();
-  const btn = document.getElementById('agentSaveBtn'); btn.disabled = true;
-  try {
-    const isTemp = document.getElementById('btnValidityTemporary').classList.contains('active');
+        return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_{mode}_{_today()}.csv')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error interno al generar el CSV: {str(e)}'}), 500
+
+@hc_bp.route('/api/hc/import', methods=['POST'])
+def hc_import():
+    _init_db()
+    if 'file' not in request.files: return jsonify({'error': 'Selecciona un archivo CSV o XLSX.'}), 400
+    f = request.files['file']
+    actor = str(request.form.get('actorMode', 'operaciones'))[:80]
     
-    const payload = {
-      agentId: document.getElementById('fldAgentId').value.trim(),
-      fullName: document.getElementById('fldFullName').value.trim(),
-      role: document.getElementById('fldRole').value.trim() || 'Agente',
-      isNewHire: document.getElementById('fldIsNewHire').value === '1',
-      supervisor: document.getElementById('fldSupervisor').value.trim(),
-      coordinator: document.getElementById('fldCoordinator').value.trim(),
-      campaign: document.getElementById('fldCampaign').value.trim(),
-      channel: document.getElementById('fldChannel').value,
-      hireDate: document.getElementById('fldHireDate').value || null,
-      status: document.getElementById('fldStatus').value,
-      actorMode: 'operaciones',
-      schedules: {
-        'Lunes': document.getElementById('fldLun').value, 'Martes': document.getElementById('fldMar').value,
-        'Miércoles': document.getElementById('fldMie').value, 'Jueves': document.getElementById('fldJue').value,
-        'Viernes': document.getElementById('fldVie').value, 'Sábado': document.getElementById('fldSab').value,
-        'Domingo': document.getElementById('fldDom').value
-      },
-      validity: {
-        type: isTemp ? 'temporary' : 'permanent',
-        startDate: isTemp ? document.getElementById('fldValidityStart').value : null,
-        endDate: isTemp ? document.getElementById('fldValidityEnd').value : null,
-        reason: isTemp ? document.getElementById('fldValidityReason').value : null
-      }
-    };
+    try:
+        file_bytes = f.read()
+        is_xlsx = file_bytes.startswith(b'PK\x03\x04')
+        
+        if HAS_PANDAS:
+            if is_xlsx:
+                df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl')
+            else:
+                try:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig', sep=None, engine='python')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1', sep=None, engine='python')
+        else:
+            if is_xlsx:
+                return jsonify({'error': 'Para leer Excel instala pandas y openpyxl.'}), 400
+            else:
+                try:
+                    raw = file_bytes.decode('utf-8-sig')
+                except UnicodeDecodeError:
+                    raw = file_bytes.decode('latin-1')
+                sep = ';' if ';' in raw.split('\n')[0] else ','
+                df = [dict(r) for r in csv.DictReader(io.StringIO(raw), delimiter=sep)]
+    except Exception as e:
+        return jsonify({'error': f'Error al procesar el archivo: {str(e)}'}), 400
+
+    imported = 0
+    errors = []
     
-    if (!payload.agentId) throw new Error('El ID del agente es obligatorio.');
-    if (!payload.campaign) throw new Error('La campaña es obligatoria.');
+    if HAS_PANDAS:
+        records = df.fillna('').to_dict('records')
+    else:
+        records = list(df)
     
-    if (isTemp) {
-      if (!payload.validity.startDate || !payload.validity.endDate) {
-        throw new Error('Debes indicar la fecha de inicio y fin para el cambio temporal.');
-      }
-      if (payload.validity.endDate < payload.validity.startDate) {
-        throw new Error('La fecha fin no puede ser anterior a la fecha inicio.');
-      }
-    }
+    normalized_records = []
+    for r in records:
+        new_r = {}
+        for k, v in r.items():
+            new_r[_normalize_col(k)] = v
+        normalized_records.append(new_r)
+    records = normalized_records
 
-    if (state.editingAgent) { 
-      await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload); 
-      toast(isTemp ? `Cambio temporal registrado.` : `Agente actualizado.`); 
-    } else { 
-      await api.send('POST', '/api/hc/agents', payload); 
-      toast(`Agente creado.`); 
-    }
-    closeAgentModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
+    with HC_LOCK:
+        conn = _conn()
+        try:
+            conn.execute('BEGIN')
+            for idx, row in enumerate(records):
+                try:
+                    def get(*keys):
+                        for k in keys:
+                            nk = _normalize_col(k)
+                            if nk in row and row[nk] is not None and str(row[nk]).strip().lower() not in ('', 'nan', 'none'): 
+                                return str(row[nk]).strip()
+                        return ''
+                    
+                    agent_id = get('ID Agente', 'agent_id', 'id')
+                    campaign = get('Campaña', 'campana')
+                    supervisor = get('Supervisor')
+                    coordinator = get('Coordinador')
+                    role = get('Puesto', 'Rol', 'role') or 'Agente'
+                    nh_raw = get('New Hire', 'Nuevo Ingreso').lower()
+                    is_new_hire = 1 if nh_raw in ('si', 'sí', '1', 'true', 'yes') else 0
+                    
+                    if not agent_id or not campaign:
+                        raise ValueError('ID y Campaña son obligatorios.')
+                        
+                    _ensure_people_catalog(conn, supervisor, coordinator)
+                        
+                    hire_date_raw = get('Fecha Ingreso')
+                    hire_date = None
+                    if hire_date_raw:
+                        try:
+                            hire_date = _validate_date(hire_date_raw, 'fecha ingreso')
+                        except ValueError:
+                            pass 
+                            
+                    schedules = {}
+                    for d in ROSTER_DAYS:
+                        val = get(d)
+                        try:
+                            schedules[d] = _validate_schedule(val)
+                        except ValueError:
+                            schedules[d] = 'DD-DD'
 
-function openTerminateModal(agentId) {
-  const a = state.agents.find(x => x.agentId === agentId);
-  document.getElementById('terminateSub').textContent = `${a.agentId} · ${a.fullName || ''} · ${a.campaign || ''}`;
-  document.getElementById('terminateAgentId').value = agentId;
-  document.getElementById('terminateDate').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('terminateReason').value = '';
-  document.getElementById('terminateModal').classList.remove('hidden');
-}
-function closeTerminateModal() { document.getElementById('terminateModal').classList.add('hidden'); }
+                    raw_status = get('Estado').lower()
+                    is_baja = raw_status in ('baja', 'inactivo')
+                    status = 'Baja' if is_baja else 'Activo'
+                    term_date = _today() if is_baja else None
 
-async function submitTermination() {
-  const btn = document.getElementById('terminateBtn'); btn.disabled = true;
-  try {
-    const date = document.getElementById('terminateDate').value;
-    const reason = document.getElementById('terminateReason').value.trim();
-    const rehireable = document.getElementById('terminateRehireable').checked;
-    const id = document.getElementById('terminateAgentId').value;
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable, actorMode: 'operaciones' });
-    toast(`Baja registrada.`); closeTerminateModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
+                    now = _now()
+                    
+                    conn.execute("""
+                        INSERT INTO hc_agents (
+                            agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, 
+                            hire_date, email, employee_number, notes, 
+                            lunes, martes, miercoles, jueves, viernes, sabado, domingo, 
+                            status, termination_date, created_at, updated_at, updated_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(agent_id) DO UPDATE SET
+                            full_name=excluded.full_name,
+                            role=excluded.role,
+                            is_new_hire=excluded.is_new_hire,
+                            supervisor=excluded.supervisor,
+                            coordinator=excluded.coordinator,
+                            campaign=excluded.campaign,
+                            channel=excluded.channel,
+                            hire_date=excluded.hire_date,
+                            email=excluded.email,
+                            employee_number=excluded.employee_number,
+                            notes=excluded.notes,
+                            lunes=excluded.lunes,
+                            martes=excluded.martes,
+                            miercoles=excluded.miercoles,
+                            jueves=excluded.jueves,
+                            viernes=excluded.viernes,
+                            sabado=excluded.sabado,
+                            domingo=excluded.domingo,
+                            status=excluded.status,
+                            termination_date=excluded.termination_date,
+                            updated_at=excluded.updated_at,
+                            updated_by=excluded.updated_by
+                    """, (
+                        agent_id, get('Nombre Completo', 'nombre'), role, is_new_hire, supervisor, coordinator,
+                        campaign, _normalize_channel(get('Canal')),
+                        hire_date, get('Email'), get('Número Empleado'), get('Notas'),
+                        schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
+                        schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
+                        status, term_date,
+                        now, now, actor
+                    ))
 
-async function reactivateAgent(agentId) {
-  if (!confirm(`¿Estás seguro de reactivar al agente ${agentId}?`)) return;
-  try {
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { actorMode: 'operaciones' });
-    toast('Agente reactivado.');
-    await refreshAll();
-  } catch (e) { toast(e.message, 'error'); }
-}
+                    if is_baja:
+                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (agent_id,))
+                        conn.execute("""
+                            INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by)
+                            VALUES (?, ?, 'Importación CSV', 1, ?, ?)
+                        """, (agent_id, term_date, now, actor))
 
-// Lógica para ocultar campos operativos si es Administrativo
-function toggleTransferFields() {
-  const roleValue = document.getElementById('transferRole').value;
-  const opsFields = document.getElementById('transferOpsFields');
-  const campaignField = document.getElementById('transferCampaign');
-  
-  // Si el rol seleccionado es administrativo, ocultamos los campos operativos
-  const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(roleValue);
-  
-  if (isAdmin) {
-    opsFields.style.display = 'none';
-    campaignField.required = false;
-  } else {
-    opsFields.style.display = 'grid';
-    campaignField.required = true;
-  }
-}
+                    imported += 1
+                except Exception as e:
+                    errors.append({'row': idx + 2, 'error': str(e)})
+                    if len(errors) >= 20: 
+                        break 
+            
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return jsonify({'error': f'Error de base de datos: {str(e)}'}), 500
+        finally: 
+            conn.close()
+            
+    return jsonify({'ok': True, 'imported': imported, 'errors': errors}), 200
 
-async function openTransferModal(agentId) {
-  await refreshFilters(); // Fuerza la actualización de las listas
+@hc_bp.route('/api/hc/agents/bulk-terminate', methods=['POST'])
+def hc_bulk_terminate():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        ids = payload.get('agentIds') or []
+        date = _validate_date(payload.get('terminationDate'), 'fecha de baja')
+        reason = str(payload.get('reason') or 'Baja masiva')[:500]
+        rehireable = 1 if payload.get('rehireable', True) else 0
+        results = []
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                for aid in ids:
+                    try:
+                        aid = str(aid).strip()
+                        before = _fetch_agent(conn, aid)
+                        if not before: results.append({'agentId': aid, 'status': 'skipped', 'reason': 'No encontrado'}); continue
+                        if before.get('terminationDate'): results.append({'agentId': aid, 'status': 'skipped', 'reason': 'Ya tiene baja'}); continue
+                        new_status = 'Baja' if date <= _today() else 'Activo'
+                        conn.execute("UPDATE hc_agents SET status=?, termination_date=?, termination_reason=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_status, date, reason, _now(), actor, aid))
+                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (aid,))
+                        conn.execute("INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)", (aid, date, reason, rehireable, _now(), actor))
+                        _log_history(conn, aid, 'agent_terminated', before, {'terminationDate': date, 'reason': reason}, reason, date, actor)
+                        results.append({'agentId': aid, 'status': 'ok'})
+                    except Exception as e: results.append({'agentId': aid, 'status': 'error', 'reason': str(e)})
+                conn.commit()
+            except Exception: conn.rollback(); raise
+            finally: conn.close()
+        return jsonify({'ok': True, 'processed': len(results), 'succeeded': sum(1 for r in results if r['status'] == 'ok'), 'results': results}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'Error en baja masiva: {e}'}), 500
 
-  const a = state.agents.find(x => x.agentId === agentId);
-  document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
-  document.getElementById('transferAgentId').value = agentId;
-  
-  // Seleccionar el rol actual del agente en el dropdown
-  const currentRole = a?.role || 'Agente';
-  const roleSelect = document.getElementById('transferRole');
-  
-  // Si el rol actual no está en las opciones (por ejemplo, un rol personalizado previo), lo agregamos temporalmente
-  if (!Array.from(roleSelect.options).some(opt => opt.value === currentRole)) {
-      const newOpt = document.createElement('option');
-      newOpt.value = currentRole;
-      newOpt.text = currentRole;
-      roleSelect.add(newOpt);
-  }
-  roleSelect.value = currentRole;
+def create_hc_app():
+    app = Flask(__name__, static_folder=None)
+    app.register_blueprint(hc_bp)
+    return app
 
-  document.getElementById('transferCampaign').value = a?.campaign || '';
-  document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
-  document.getElementById('transferSupervisor').value = a?.supervisor || '';
-  document.getElementById('transferCoordinator').value = a?.coordinator || '';
-  
-  document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('transferReason').value = '';
-  
-  toggleTransferFields(); // Evaluar si se ocultan los campos o no
-  document.getElementById('transferModal').classList.remove('hidden');
-}
-function closeTransferModal() { document.getElementById('transferModal').classList.add('hidden'); }
-
-async function submitTransfer() {
-  const btn = document.getElementById('transferBtn'); btn.disabled = true;
-  try {
-    const id = document.getElementById('transferAgentId').value;
-    const toRole = document.getElementById('transferRole').value;
-    const toCampaign = document.getElementById('transferCampaign').value.trim();
-    const toChannel = document.getElementById('transferChannel').value;
-    const toSupervisor = document.getElementById('transferSupervisor').value.trim();
-    const toCoordinator = document.getElementById('transferCoordinator').value.trim();
-    const effectiveDate = document.getElementById('transferDate').value;
-    const reason = document.getElementById('transferReason').value.trim();
-
-    const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(toRole);
-
-    if (!toCampaign && !isAdmin) throw new Error('La campaña destino es obligatoria.');
-    if (!effectiveDate) throw new Error('La fecha efectiva es obligatoria.');
-
-    const payload = {
-        toRole, toCampaign, toChannel, toSupervisor, toCoordinator,
-        effectiveDate, reason, actorMode: 'operaciones'
-    };
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, payload);
-    toast('Transferencia registrada.');
-    closeTransferModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function openAbsenceModal() { document.getElementById('absenceModal').classList.remove('hidden'); }
-function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
-
-async function submitAbsence() {
-  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
-  try {
-    const agentId = document.getElementById('absenceAgent').value;
-    const absenceType = document.getElementById('absenceType').value;
-    const startDate = document.getElementById('absenceStart').value;
-    const endDate = document.getElementById('absenceEnd').value;
-    const reason = document.getElementById('absenceReason').value.trim();
-
-    if (!agentId) throw new Error('Selecciona un agente.');
-    if (!startDate || !endDate) throw new Error('Las fechas son obligatorias.');
-
-    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
-    toast('Ausencia registrada.');
-    closeAbsenceModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function openPeopleModal() { document.getElementById('peopleModal').classList.remove('hidden'); }
-function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
-
-async function submitPerson() {
-  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
-  try {
-    const role = document.getElementById('peopleRole').value;
-    const name = document.getElementById('peopleName').value.trim();
-    if (!name) throw new Error('El nombre es obligatorio.');
-
-    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
-    toast('Persona registrada.');
-    closePeopleModal(); await refreshFilters();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function downloadTemplate() { window.location.href = '/api/hc/template'; }
-
-// NUEVA LÓGICA: Exportar base con filtros aplicados
-async function exportBaseCsv() {
-  const params = new URLSearchParams();
-  params.set('mode', 'base');
-  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
-  Object.entries(map).forEach(([k, id]) => {
-    const v = document.getElementById(id).value.trim();
-    if (v) params.set(k, v);
-  });
-
-  try {
-    const response = await fetch('/api/hc/export?' + params.toString());
-    if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Error al generar la descarga base.');
-    }
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `HC_base_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    a.remove();
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-}
-
-// NUEVA LÓGICA: Exportar histórico con filtros aplicados
-async function exportHistoricalCsv() {
-  const start = document.getElementById('rosterEffectiveStart').value;
-  const end = document.getElementById('rosterEffectiveEnd').value;
-  
-  if (!start || !end) {
-    toast('Debes seleccionar fecha de inicio y fin para descargar el roster histórico.', 'error');
-    return;
-  }
-  
-  const params = new URLSearchParams();
-  params.set('mode', 'history');
-  params.set('startDate', start);
-  params.set('endDate', end);
-  
-  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
-  Object.entries(map).forEach(([k, id]) => {
-    const v = document.getElementById(id).value.trim();
-    if (v) params.set(k, v);
-  });
-  
-  try {
-    const response = await fetch('/api/hc/export?' + params.toString());
-    if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Error al generar la descarga histórica.');
-    }
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `HC_history_${start}_${end}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    a.remove();
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-}
-
-async function importFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('actorMode', 'operaciones');
-  try {
-    const r = await fetch('/api/hc/import', { method: 'POST', body: formData });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Error al importar');
-    toast(`Importados: ${data.imported} registros.`);
-    if (data.errors && data.errors.length) {
-      console.warn('Errores de importación:', data.errors);
-      toast(`Hubo ${data.errors.length} errores. Revisa la consola.`, 'error');
-    }
-    await refreshAll();
-  } catch (e) { toast(e.message, 'error'); }
-  event.target.value = ''; // reset
-}
-
-// Inicializar la carga de datos cuando la página esté lista
-document.addEventListener('DOMContentLoaded', () => {
-    refreshAll();
-});
-</script>
-</body>
-</html>
+if __name__ == '__main__':
+    _init_db()
+    app = create_hc_app()
+    port = int(os.environ.get('HC_PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
