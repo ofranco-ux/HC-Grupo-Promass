@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Tablero de HC · Operaciones</title>
+<title>HeadCount Grupo Promass</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -114,7 +114,7 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 10h14v10H5z"/><path d="M8 14h3M13 14h3M8 17h3"/></svg>
             </div>
             <div>
-                <div class="roster-title">Gestión de horarios</div>
+                <div class="roster-title">HeadCount Grupo Promass</div>
                 <div class="roster-subtitle">Roster operativo · ID, nombre completo, supervisor, campaña y horario semanal.</div>
             </div>
         </div>
@@ -181,7 +181,7 @@
             </table>
         </div>
 
-        <!-- NUEVO CRONOGRAMA -->
+        <!-- CRONOGRAMA -->
         <div class="schedule-section">
             <div class="schedule-header">
                 <div>
@@ -389,7 +389,7 @@ async function loadAgents() {
     const data = await api.get('/api/hc/agents?' + params.toString());
     state.agents = data.agents || [];
     renderAgents();
-    renderTimelineChart(); // Actualizamos la gráfica al mismo tiempo
+    renderTimelineChart();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -448,30 +448,26 @@ function parseTime(t) {
 }
 
 function getScheduleCoverage(agent, dayIndex) {
-    // dayIndex: 0=Lunes, 6=Domingo
     const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const prevDayIndex = (dayIndex + 6) % 7;
     
     let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
     let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
     
-    let coverage = new Array(48).fill(0); // 48 intervalos de 30 mins
+    let coverage = new Array(48).fill(0);
     
-    // Función para marcar intervalos
     const mark = (start, end, isPrevDay) => {
-        let offset = isPrevDay ? 1440 : 0; // Si es día anterior, sumamos 24h
+        let offset = isPrevDay ? 1440 : 0;
         for (let i = 0; i < 48; i++) {
             let slotStart = i * 30;
             let slotEnd = slotStart + 30;
             
-            // Si el turno cruza medianoche, el final es mayor a 1440
             let shiftStart = start + offset;
             let shiftEnd = end + offset;
-            if (shiftEnd <= shiftStart) shiftEnd += 1440; // Turno nocturno
+            if (shiftEnd <= shiftStart) shiftEnd += 1440;
             
-            // Comprobar si el slot actual cae dentro del turno
             if (Math.max(slotStart, shiftStart) < Math.min(slotEnd, shiftEnd)) {
-                coverage[i] = 1; // Marcamos que este agente cubre este slot
+                coverage[i] = 1;
             }
         }
     };
@@ -485,9 +481,8 @@ function getScheduleCoverage(agent, dayIndex) {
         const [s, e] = prevStr.split('-');
         let sMin = parseTime(s);
         let eMin = parseTime(e);
-        if (eMin <= sMin) eMin += 1440; // Es nocturno
+        if (eMin <= sMin) eMin += 1440;
         
-        // Si el turno del día anterior termina después de las 24:00, arrastra cobertura a hoy
         if (eMin > 1440) {
             mark(sMin, eMin, true);
         }
@@ -501,7 +496,6 @@ function renderTimelineChart() {
     const tabsContainer = document.getElementById('scheduleTabs');
     const chartContainer = document.getElementById('scheduleChart');
     
-    // Renderizar pestañas de días
     tabsContainer.innerHTML = days.map(d => `
         <button class="schedule-tab ${state.chartDay === d ? 'active' : ''}" onclick="changeChartDay('${d}')">${d.slice(0,3)}</button>
     `).join('');
@@ -537,10 +531,9 @@ function renderTimelineChart() {
     document.getElementById('chartKpiStart').textContent = firstShift >= 0 ? formatTime(firstShift) : '—';
     document.getElementById('chartKpiEnd').textContent = lastShift >= 0 ? formatTime(lastShift + 1) : '—';
 
-    // Renderizar barras
     chartContainer.innerHTML = totalCoverage.map((count, i) => {
         const heightPercent = peak > 0 ? (count / peak) * 100 : 0;
-        const showLabel = i % 4 === 0; // Etiqueta cada 2 horas (4 intervalos de 30m)
+        const showLabel = i % 4 === 0;
         return `
             <div class="chart-bar-wrap" title="${formatTime(i)} - ${formatTime(i+1)}: ${count} agentes">
                 ${count > 0 ? `<span class="chart-bar-value">${count}</span>` : ''}
