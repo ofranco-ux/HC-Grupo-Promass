@@ -1091,10 +1091,37 @@ async function submitPerson() {
 
 function downloadTemplate() { window.location.href = '/api/hc/template'; }
 
-function exportBaseCsv() {
-  window.location.href = '/api/hc/export?mode=base';
+// NUEVA LÓGICA: Exportar base con filtros aplicados
+async function exportBaseCsv() {
+  const params = new URLSearchParams();
+  params.set('mode', 'base');
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+
+  try {
+    const response = await fetch('/api/hc/export?' + params.toString());
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Error al generar la descarga base.');
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `HC_base_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
+// NUEVA LÓGICA: Exportar histórico con filtros aplicados
 async function exportHistoricalCsv() {
   const start = document.getElementById('rosterEffectiveStart').value;
   const end = document.getElementById('rosterEffectiveEnd').value;
@@ -1109,14 +1136,18 @@ async function exportHistoricalCsv() {
   params.set('startDate', start);
   params.set('endDate', end);
   
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  
   try {
     const response = await fetch('/api/hc/export?' + params.toString());
     if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Error al generar la descarga.');
+        throw new Error(data.error || 'Error al generar la descarga histórica.');
     }
-    
-    // Descargar el blob
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1126,7 +1157,6 @@ async function exportHistoricalCsv() {
     a.click();
     window.URL.revokeObjectURL(url);
     a.remove();
-    
   } catch (e) {
     toast(e.message, 'error');
   }
