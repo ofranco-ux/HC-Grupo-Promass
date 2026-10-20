@@ -531,8 +531,19 @@
       <button class="modal-close" onclick="closeHistoryModal()">✕</button>
     </div>
     <div class="modal-body">
+      
+      <!-- Barra de herramientas del Historial -->
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom: 16px; flex-wrap: wrap; background: #F1F5F9; padding: 12px; border-radius: 8px;">
+        <label style="font-size:11px; font-weight:800; color:#64748B;">Desde:</label>
+        <input type="date" id="histStartDate" class="roster-input" style="width: 150px; background: #FFF;">
+        <label style="font-size:11px; font-weight:800; color:#64748B;">Hasta:</label>
+        <input type="date" id="histEndDate" class="roster-input" style="width: 150px; background: #FFF;">
+        <button class="roster-toolbar-btn" onclick="loadHistory()">Filtrar</button>
+        <button class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none; margin-left: auto;" onclick="exportHistoryCsv()">Descargar CSV</button>
+      </div>
+
       <div id="historyLoading" style="text-align:center; padding: 20px; color: #64748B; font-weight: bold;">Cargando bitácora...</div>
-      <div class="roster-agents-scroll" id="historyContent" style="max-height: 600px; display: none;">
+      <div class="roster-agents-scroll" id="historyContent" style="max-height: 500px; display: none;">
         <table class="roster-table">
           <thead>
             <tr>
@@ -1226,16 +1237,39 @@ async function importFile(event) {
 // ==========================================
 async function openHistoryModal() {
   document.getElementById('historyModal').classList.remove('hidden');
+  
+  // Poner fechas por defecto (este mes)
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  
+  if (!document.getElementById('histStartDate').value) {
+      document.getElementById('histStartDate').value = firstDay.toISOString().slice(0, 10);
+  }
+  if (!document.getElementById('histEndDate').value) {
+      document.getElementById('histEndDate').value = today.toISOString().slice(0, 10);
+  }
+  
+  await loadHistory();
+}
+
+async function loadHistory() {
   document.getElementById('historyLoading').style.display = 'block';
   document.getElementById('historyContent').style.display = 'none';
   document.getElementById('historyTableBody').innerHTML = '';
+  
+  const start = document.getElementById('histStartDate').value;
+  const end = document.getElementById('histEndDate').value;
+  
+  let url = `/api/hc/history?limit=500`;
+  if (start) url += `&startDate=${start}`;
+  if (end) url += `&endDate=${end}`;
 
   try {
-    const data = await api.get('/api/hc/history?limit=200');
+    const data = await api.get(url);
     const history = data.history || [];
 
     if (!history.length) {
-      document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#64748B;">No hay registros de cambios en el sistema.</td></tr>';
+      document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#64748B;">No hay registros de cambios en este periodo.</td></tr>';
     } else {
       document.getElementById('historyTableBody').innerHTML = history.map(h => {
         
@@ -1362,6 +1396,34 @@ async function openHistoryModal() {
   } catch (e) {
     document.getElementById('historyLoading').textContent = 'Error al cargar la bitácora: ' + e.message;
     document.getElementById('historyLoading').style.color = '#991B1B';
+  }
+}
+
+async function exportHistoryCsv() {
+  const start = document.getElementById('histStartDate').value;
+  const end = document.getElementById('histEndDate').value;
+  
+  const params = new URLSearchParams();
+  if (start) params.set('startDate', start);
+  if (end) params.set('endDate', end);
+
+  try {
+    const response = await fetch('/api/hc/history/export?' + params.toString());
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Error al generar la descarga.');
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Bitacora_${start}_${end}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+  } catch (e) {
+    toast(e.message, 'error');
   }
 }
 
