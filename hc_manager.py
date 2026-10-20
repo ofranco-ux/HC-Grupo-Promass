@@ -31,6 +31,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS hc_agents (
     agent_id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'Agente',
     supervisor TEXT NOT NULL DEFAULT '',
     coordinator TEXT NOT NULL DEFAULT '',
     campaign TEXT NOT NULL,
@@ -87,6 +88,8 @@ CREATE TABLE IF NOT EXISTS hc_transfers (
     to_supervisor TEXT NOT NULL DEFAULT '',
     from_coordinator TEXT NOT NULL DEFAULT '',
     to_coordinator TEXT NOT NULL DEFAULT '',
+    from_role TEXT NOT NULL DEFAULT '',
+    to_role TEXT NOT NULL DEFAULT '',
     effective_date TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
@@ -155,13 +158,15 @@ def _init_db():
             conn.executescript(SCHEMA)
             
             # Migraciones de columnas
-            columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_transfers)").fetchall()]
-            if 'from_supervisor' not in columns:
-                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_supervisor TEXT NOT NULL DEFAULT ''")
-                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_supervisor TEXT NOT NULL DEFAULT ''")
-                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_coordinator TEXT NOT NULL DEFAULT ''")
-                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_coordinator TEXT NOT NULL DEFAULT ''")
-            
+            columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_agents)").fetchall()]
+            if 'role' not in columns:
+                conn.execute("ALTER TABLE hc_agents ADD COLUMN role TEXT NOT NULL DEFAULT 'Agente'")
+
+            t_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_transfers)").fetchall()]
+            if 'from_role' not in t_columns:
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_role TEXT NOT NULL DEFAULT ''")
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_role TEXT NOT NULL DEFAULT ''")
+
             abs_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_absences)").fetchall()]
             if 'status' not in abs_columns:
                 conn.execute("ALTER TABLE hc_absences ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'")
@@ -215,8 +220,9 @@ def _row_to_agent(row):
     if not row: return None
     today = _today()
     d = {
-        'agentId': row['agent_id'], 'fullName': row['full_name'] or '', 'supervisor': row['supervisor'] or '',
-        'coordinator': row['coordinator'] or '', 'campaign': row['campaign'] or '', 'channel': row['channel'] or 'Llamadas',
+        'agentId': row['agent_id'], 'fullName': row['full_name'] or '', 'role': row['role'] or 'Agente',
+        'supervisor': row['supervisor'] or '', 'coordinator': row['coordinator'] or '', 
+        'campaign': row['campaign'] or '', 'channel': row['channel'] or 'Llamadas',
         'status': row['status'] or 'Activo', 'hireDate': row['hire_date'], 'terminationDate': row['termination_date'],
         'terminationReason': row['termination_reason'] or '', 'schedules': {
             'Lunes': row['lunes'] or 'DD-DD', 'Martes': row['martes'] or 'DD-DD', 'Miércoles': row['miercoles'] or 'DD-DD',
@@ -242,7 +248,7 @@ def _fetch_agent(conn, agent_id):
 def _diff_agents(before, after):
     out = {}
     if not before or not after: return out
-    for k in ('fullName', 'supervisor', 'coordinator', 'campaign', 'channel', 'hireDate'):
+    for k in ('fullName', 'supervisor', 'coordinator', 'campaign', 'channel', 'hireDate', 'role'):
         if before.get(k) != after.get(k): out[k] = {'before': before.get(k), 'after': after.get(k)}
     if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
     return out
@@ -265,6 +271,7 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
 
     supervisor = str(payload.get('supervisor') or '').strip()[:120]
     coordinator = str(payload.get('coordinator') or '').strip()[:120]
+    role = str(payload.get('role') or 'Agente').strip()[:120]
     _ensure_people_catalog(conn, supervisor, coordinator)
 
     if before and old_id != new_id:
@@ -290,7 +297,7 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     is_temp = validity.get('type') == 'temporary'
     
     values = (
-        str(payload.get('fullName') or '').strip()[:120], supervisor,
+        str(payload.get('fullName') or '').strip()[:120], role, supervisor,
         coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
         hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
         str(payload.get('notes') or '').strip()[:500], 
@@ -299,7 +306,7 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     )
 
     if before is None:
-        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values)
+        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values)
         _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[3], 'channel': values[4], 'supervisor': values[1], 'coordinator': values[2], 'hireDate': hire_date}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
     else:
         if is_temp:
@@ -310,7 +317,7 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
         else:
             update_values = values
             
-        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (old_id,))
+        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (old_id,))
         
         if is_temp:
             start = _validate_date(validity.get('startDate'), 'fecha inicio')
@@ -383,7 +390,7 @@ def hc_list_agents():
         sql += " AND (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date >= ?)"
         args.extend([end_date, start_date])
         
-    sql += " ORDER BY campaign, supervisor, full_name, agent_id"
+    sql += " ORDER BY campaign, role, supervisor, full_name, agent_id"
 
     conn = _conn()
     try:
@@ -403,7 +410,7 @@ def hc_list_agents():
         conn.close()
 
     if search:
-        rows = [r for r in rows if search in f"{r['agentId']} {r['fullName']} {r['supervisor']} {r['coordinator']} {r['campaign']} {r['email']}".lower()]
+        rows = [r for r in rows if search in f"{r['agentId']} {r['fullName']} {r['role']} {r['supervisor']} {r['coordinator']} {r['campaign']} {r['email']}".lower()]
 
     return jsonify({'agents': rows, 'count': len(rows)}), 200
 
@@ -526,6 +533,7 @@ def hc_transfer_agent(agent_id):
         to_channel = _normalize_channel(payload.get('toChannel') or '')
         to_supervisor = str(payload.get('toSupervisor') or '').strip()
         to_coordinator = str(payload.get('toCoordinator') or '').strip()
+        to_role = str(payload.get('toRole') or 'Agente').strip()
         effective = _validate_date(payload.get('effectiveDate'), 'fecha efectiva')
         reason = str(payload.get('reason') or '')[:500]
 
@@ -537,24 +545,26 @@ def hc_transfer_agent(agent_id):
                 before = _fetch_agent(conn, agent_id)
                 if not before: raise ValueError('Agente no encontrado.')
                 if (before['campaign'] == to_campaign and before['channel'] == to_channel and 
-                    before['supervisor'] == to_supervisor and before['coordinator'] == to_coordinator):
+                    before['supervisor'] == to_supervisor and before['coordinator'] == to_coordinator and
+                    before['role'] == to_role):
                     raise ValueError('No hay cambios en la asignación actual.')
 
                 _ensure_people_catalog(conn, to_supervisor, to_coordinator)
 
-                conn.execute("UPDATE hc_agents SET campaign=?, channel=?, supervisor=?, coordinator=?, updated_at=?, updated_by=? WHERE agent_id=?", 
-                             (to_campaign, to_channel, to_supervisor, to_coordinator, _now(), actor, agent_id))
+                conn.execute("UPDATE hc_agents SET campaign=?, channel=?, supervisor=?, coordinator=?, role=?, updated_at=?, updated_by=? WHERE agent_id=?", 
+                             (to_campaign, to_channel, to_supervisor, to_coordinator, to_role, _now(), actor, agent_id))
                 
                 conn.execute("""
-                    INSERT INTO hc_transfers (agent_id, from_campaign, to_campaign, from_channel, to_channel, from_supervisor, to_supervisor, from_coordinator, to_coordinator, effective_date, reason, created_at, created_by) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (agent_id, before['campaign'], to_campaign, before['channel'], to_channel, before['supervisor'], to_supervisor, before['coordinator'], to_coordinator, effective, reason, _now(), actor))
+                    INSERT INTO hc_transfers (agent_id, from_campaign, to_campaign, from_channel, to_channel, from_supervisor, to_supervisor, from_coordinator, to_coordinator, from_role, to_role, effective_date, reason, created_at, created_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (agent_id, before['campaign'], to_campaign, before['channel'], to_channel, before['supervisor'], to_supervisor, before['coordinator'], to_coordinator, before['role'], to_role, effective, reason, _now(), actor))
                 
                 _log_history(conn, agent_id, 'agent_transferred', before, {
                     'fromCampaign': before['campaign'], 'toCampaign': to_campaign, 
                     'fromChannel': before['channel'], 'toChannel': to_channel,
                     'fromSupervisor': before['supervisor'], 'toSupervisor': to_supervisor,
                     'fromCoordinator': before['coordinator'], 'toCoordinator': to_coordinator,
+                    'fromRole': before['role'], 'toRole': to_role,
                     'effectiveDate': effective
                 }, reason, effective, actor)
                 conn.commit()
@@ -840,12 +850,12 @@ def hc_list_supervisors():
 def hc_download_template():
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(['ID Agente', 'Nombre Completo', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+    writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
     
     hoy_ddmmyyyy = datetime.now().strftime('%d/%m/%Y')
     
     writer.writerow([
-        'A-00001', 'Nombre Apellido', 'Supervisor 1', 'Coordinador 1', 
+        'A-00001', 'Nombre Apellido', 'Agente', 'Supervisor 1', 'Coordinador 1', 
         'Coppel Servicios', 'Llamadas', 'Activo', hoy_ddmmyyyy, 
         '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', 
         'DD-DD', 'DD-DD'
@@ -860,10 +870,10 @@ def hc_export_csv():
     finally: conn.close()
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(['ID Agente', 'Nombre Completo', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Email', 'Número Empleado', 'Notas'])
+    writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Email', 'Número Empleado', 'Notas'])
     for r in rows:
         s = r['schedules']
-        writer.writerow([r['agentId'], r['fullName'], r['supervisor'], r['coordinator'], r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', r['terminationDate'] or '', s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo'], r['email'], r['employeeNumber'], r['notes']])
+        writer.writerow([r['agentId'], r['fullName'], r['role'], r['supervisor'], r['coordinator'], r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', r['terminationDate'] or '', s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo'], r['email'], r['employeeNumber'], r['notes']])
     return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_export_{_today()}.csv')
 
 @hc_bp.route('/api/hc/import', methods=['POST'])
@@ -931,6 +941,7 @@ def hc_import():
                     campaign = get('Campaña', 'campana')
                     supervisor = get('Supervisor')
                     coordinator = get('Coordinador')
+                    role = get('Puesto', 'Rol', 'role') or 'Agente'
                     
                     if not agent_id or not campaign:
                         raise ValueError('ID y Campaña son obligatorios.')
@@ -962,13 +973,14 @@ def hc_import():
                     
                     conn.execute("""
                         INSERT INTO hc_agents (
-                            agent_id, full_name, supervisor, coordinator, campaign, channel, 
+                            agent_id, full_name, role, supervisor, coordinator, campaign, channel, 
                             hire_date, email, employee_number, notes, 
                             lunes, martes, miercoles, jueves, viernes, sabado, domingo, 
                             status, termination_date, created_at, updated_at, updated_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(agent_id) DO UPDATE SET
                             full_name=excluded.full_name,
+                            role=excluded.role,
                             supervisor=excluded.supervisor,
                             coordinator=excluded.coordinator,
                             campaign=excluded.campaign,
@@ -989,7 +1001,7 @@ def hc_import():
                             updated_at=excluded.updated_at,
                             updated_by=excluded.updated_by
                     """, (
-                        agent_id, get('Nombre Completo', 'nombre'), supervisor, coordinator,
+                        agent_id, get('Nombre Completo', 'nombre'), role, supervisor, coordinator,
                         campaign, _normalize_channel(get('Canal')),
                         hire_date, get('Email'), get('Número Empleado'), get('Notas'),
                         schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
