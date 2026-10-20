@@ -183,18 +183,18 @@
 
     <!-- FILTROS -->
     <div class="roster-toolbar">
-        <select id="filterCampaign" class="roster-select" onchange="loadAgents()"><option value="">Todas las campañas</option></select>
-        <select id="filterSupervisor" class="roster-select" onchange="loadAgents()"><option value="">Todos los supervisores</option></select>
-        <select id="filterCoordinator" class="roster-select" onchange="loadAgents()"><option value="">Todos los coordinadores</option></select>
-        <select id="filterChannel" class="roster-select" onchange="loadAgents()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
-        <select id="filterStatus" class="roster-select" onchange="loadAgents()">
+        <select id="filterCampaign" class="roster-select" onchange="updateDashboard()"><option value="">Todas las campañas</option></select>
+        <select id="filterSupervisor" class="roster-select" onchange="updateDashboard()"><option value="">Todos los supervisores</option></select>
+        <select id="filterCoordinator" class="roster-select" onchange="updateDashboard()"><option value="">Todos los coordinadores</option></select>
+        <select id="filterChannel" class="roster-select" onchange="updateDashboard()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
+        <select id="filterStatus" class="roster-select" onchange="updateDashboard()">
             <option value="">Todos los estados</option>
             <option value="Activo">Activo</option>
             <option value="Baja">Baja</option>
             <option value="Vacación">Vacación</option>
             <option value="Incapacidad">Incapacidad</option>
         </select>
-        <input id="filterSearch" class="roster-input" placeholder="Buscar ID, nombre..." oninput="debouncedLoadAgents()">
+        <input id="filterSearch" class="roster-input" placeholder="Buscar ID, nombre..." oninput="debounceUpdateDashboard()">
     </div>
 
     <div class="download-block">
@@ -203,9 +203,9 @@
             <p>Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <input id="rosterEffectiveStart" type="date" onchange="refreshMetrics()">
+            <input id="rosterEffectiveStart" type="date" onchange="updateDashboard()">
             <span style="color:#FFF;font-weight:700;">a</span>
-            <input id="rosterEffectiveEnd" type="date" onchange="refreshMetrics()">
+            <input id="rosterEffectiveEnd" type="date" onchange="updateDashboard()">
             <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportCsv()">Descargar CSV</button>
         </div>
     </div>
@@ -373,9 +373,14 @@ function toast(msg, kind = 'success') {
   toast._t = setTimeout(() => el.classList.remove('is-visible'), 4000);
 }
 
-function debounceLoadAgents() {
+function debounceUpdateDashboard() {
   clearTimeout(state.debounceTimer);
-  state.debounceTimer = setTimeout(loadAgents, 250);
+  state.debounceTimer = setTimeout(updateDashboard, 300);
+}
+
+function updateDashboard() {
+  loadAgents();
+  refreshMetrics();
 }
 
 async function refreshAll() {
@@ -406,13 +411,20 @@ async function refreshFilters() {
 }
 
 async function refreshMetrics() {
+  const params = new URLSearchParams();
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  
   const start = document.getElementById('rosterEffectiveStart').value;
   const end = document.getElementById('rosterEffectiveEnd').value;
-  let url = '/api/hc/metrics';
-  if (start && end) url += `?start=${start}&end=${end}`;
-  
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+
   try {
-    const m = await api.get(url);
+    const m = await api.get('/api/hc/metrics?' + params.toString());
     document.getElementById('kpiActive').textContent = m.active;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
     document.getElementById('kpiSupervisors').textContent = state.supervisors.length;
