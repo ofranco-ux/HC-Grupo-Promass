@@ -536,9 +536,9 @@ def hc_metrics():
         active_at_start = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE "
             "(a.hire_date IS NULL OR a.hire_date <= ?) "
-            "AND (a.termination_date IS NULL OR a.termination_date > ?) "
+            "AND (a.termination_date IS NULL OR a.termination_date >= ?) "
             "AND (COALESCE(a.status, '') <> 'Baja' OR "
-            "(a.termination_date IS NOT NULL AND a.termination_date > ?) OR "
+            "(a.termination_date IS NOT NULL AND a.termination_date >= ?) OR "
             "(a.termination_date IS NULL AND ? < ?))"
             + agent_where,
             [start, start, start, start, next_month_start] + args
@@ -621,6 +621,7 @@ def hc_metrics():
         # Mostrar rotación siempre como porcentaje numérico. Si el HC inicial es
         # cero, no existe una base válida para calcular la tasa.
         attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start else 0.0
+        # Alias explícito para clientes del dashboard que esperan el campo porcentual.
         net_change = new_hires - terminations
     finally:
         conn.close()
@@ -628,7 +629,7 @@ def hc_metrics():
     return jsonify({
         'active': active, 'activeAtStart': active_at_start, 'byCampaign': by_campaign,
         'terminations': terminations, 'newHires': new_hires, 'transfers': transfers,
-        'attrition': attrition, 'netChange': net_change, 'periodStart': start,
+        'attrition': attrition, 'attritionPercent': attrition, 'netChange': net_change, 'periodStart': start,
         'periodEnd': end, 'asOf': today
     }), 200
 
