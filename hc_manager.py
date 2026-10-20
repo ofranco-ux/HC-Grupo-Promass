@@ -782,6 +782,19 @@ def hc_metrics():
             [today] + args
         ).fetchone()[0]
 
+        # NUEVAS CONSULTAS PARA SUPERVISORES Y COORDINADORES
+        unique_supervisors = conn.execute(
+            "SELECT COUNT(DISTINCT a.supervisor) FROM hc_agents a WHERE a.status='Activo' AND a.supervisor <> '' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        unique_coordinators = conn.execute(
+            "SELECT COUNT(DISTINCT a.coordinator) FROM hc_agents a WHERE a.status='Activo' AND a.coordinator <> '' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
         active_new_hires = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' AND a.is_new_hire=1 "
             "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
@@ -869,6 +882,8 @@ def hc_metrics():
     return jsonify({
         'active': active, 'activeAtStart': active_at_start, 'byCampaign': by_campaign,
         'activeNewHires': active_new_hires,
+        'uniqueSupervisors': unique_supervisors,
+        'uniqueCoordinators': unique_coordinators,
         'terminations': terminations, 'newHires': new_hires, 'transfers': transfers,
         'attrition': attrition, 'attritionPercent': attrition, 'netChange': net_change, 'periodStart': start,
         'periodEnd': end, 'asOf': today
@@ -928,7 +943,6 @@ def hc_export_csv():
     finally:
         conn.close()
 
-    # Agrupar datos para búsquedas rápidas
     transfers_by_agent = defaultdict(list)
     for t in transfers: transfers_by_agent[t['agent_id']].append(t)
     
@@ -942,7 +956,6 @@ def hc_export_csv():
     writer = csv.writer(buffer)
 
     if mode == 'base':
-        # MODO 1: Exportar Horarios Permanentes
         writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
         for r in agents:
             s = r['schedules']
@@ -953,7 +966,6 @@ def hc_export_csv():
                 s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo']
             ])
     else:
-        # MODO 2: Exportar Roster por Periodo (Histórico)
         if not start_date_str or not end_date_str:
             return jsonify({'error': 'Faltan fechas para exportar el histórico.'}), 400
 
@@ -970,17 +982,14 @@ def hc_export_csv():
             date_str = current_date.strftime('%Y-%m-%d')
             
             for a in agents:
-                # 1. Validar si ya había ingresado
                 h_date = parse_db_date(a['hireDate'])
                 if h_date and h_date > current_date:
                     continue
                 
-                # 2. Validar si ya había sido dado de baja antes de este día
                 t_date = parse_db_date(a['terminationDate'])
                 if t_date and t_date < current_date:
                     continue
                 
-                # 3. Reconstruir historial de transferencias (Campaña, Supervisor, etc.)
                 hist_campaign = a['campaign']
                 hist_supervisor = a['supervisor']
                 hist_coordinator = a['coordinator']
@@ -996,7 +1005,6 @@ def hc_export_csv():
                         hist_channel = t['to_channel']
                         hist_role = t['to_role']
 
-                # 4. Reconstruir horario (Validando cambios temporales)
                 hist_schedules = dict(a['schedules'])
                 for o in overrides_by_agent[a['agentId']]:
                     o_start = parse_db_date(o['start_date'])
@@ -1005,7 +1013,6 @@ def hc_export_csv():
                         hist_schedules = json.loads(o['schedules_json'])
                         break
 
-                # 5. Validar Estado (Bajas, Vacaciones, Incapacidades)
                 hist_status = 'Activo'
                 term_reason = ''
 
