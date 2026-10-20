@@ -16,12 +16,17 @@
     body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--promass-gray); margin: 0; padding: 20px; color: #2A4358; }
     .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 24px; border: 1px solid #D5DFE7; background: #FFF; box-shadow: 0 38px 90px -48px rgba(10,51,91,.4); overflow: hidden; min-height: calc(100vh - 40px); }
     
-    /* HEADER CON LOGO REAL */
+    /* HEADER CON LOGO Y TÍTULO */
     .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 20px; background: #FFF; border-bottom: 3px solid var(--promass-navy); }
-    .roster-head-left { display: flex; align-items: center; gap: 14px; }
+    .roster-head-left { display: flex; align-items: center; gap: 16px; }
     .brand-logo { display: flex; align-items: center; }
     .brand-logo img { height: 54px; width: auto; object-fit: contain; }
     
+    /* TÍTULO HEADCOUNT */
+    .header-title-group { display: flex; flex-direction: column; justify-content: center; border-left: 1px solid #D5DFE7; padding-left: 16px; }
+    .header-main-title { margin: 0; font-size: 22px; font-weight: 900; color: var(--promass-navy); line-height: 1.1; letter-spacing: -0.5px; }
+    .header-sub-title { font-size: 9px; font-weight: 800; color: #7A8FA3; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
     .roster-head-actions { display: flex; align-items: center; gap: 8px; }
     .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: var(--promass-navy); font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
     .roster-head-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
@@ -122,8 +127,9 @@
         .roster-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .roster-toolbar { grid-template-columns: 1fr; }
         .form-grid { grid-template-columns: 1fr; }
-        .roster-head { flex-direction: column; align-items: stretch; gap: 10px; }
-        .roster-head-actions { justify-content: flex-end; }
+        .roster-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+        .roster-head-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+        .header-title-group { border-left: none; padding-left: 0; }
         .brand-logo img { height: 40px; }
     }
 </style>
@@ -135,8 +141,12 @@
     <div class="roster-head">
         <div class="roster-head-left">
             <div class="brand-logo">
-                <!-- Asegúrate de haber subido logo.png a GitHub -->
+                <!-- Asegúrate de tener logo.png en tu repo -->
                 <img src="logo.png" alt="Grupo Promass Logo" onerror="this.outerHTML='<h2 style=\'color:#0A335B; font-weight:900; font-size:22px; margin:0;\'>GRUPO <span style=\'color:#EAB52D;\'>PROMASS</span></h2>'">
+            </div>
+            <div class="header-title-group">
+                <h1 class="header-main-title">HeadCount</h1>
+                <span class="header-sub-title">Gestión de horarios</span>
             </div>
         </div>
         <div class="roster-head-actions">
