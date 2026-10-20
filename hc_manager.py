@@ -135,10 +135,16 @@ def _now(): return datetime.now().isoformat(timespec='seconds')
 def _validate_date(value, field='fecha'):
     raw = str(value or '').strip()[:10]
     try:
+        # Intenta formato YYYY-MM-DD
         datetime.strptime(raw, '%Y-%m-%d')
         return raw
     except Exception:
-        raise ValueError(f'{field} inválida: "{value}". Usa YYYY-MM-DD.')
+        try:
+            # Intenta formato DD/MM/YYYY
+            dt = datetime.strptime(raw, '%d/%m/%Y')
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            raise ValueError(f'{field} inválida: "{value}". Usa YYYY-MM-DD o DD/MM/YYYY.')
 
 def _validate_schedule(value):
     raw = str(value or '').strip().upper()
@@ -281,7 +287,6 @@ def hc_list_agents():
     try:
         rows = [_row_to_agent(r) for r in conn.execute(sql, args).fetchall()]
         
-        # Filtrado especial para Vacaciones e Incapacidades
         if status_filter in ('Vacación', 'Incapacidad'):
             today = _today()
             absences = {r['agent_id']: r['absence_type'] for r in conn.execute("SELECT agent_id, absence_type FROM hc_absences WHERE start_date <= ? AND end_date >= ?", (today, today))}
@@ -517,8 +522,18 @@ def hc_list_supervisors():
 def hc_download_template():
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(['ID Agente', 'Nombre Completo', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Email', 'Número Empleado', 'Notas'])
-    writer.writerow(['A-00001', 'Nombre Apellido', 'Supervisor 1', 'Coordinador 1', 'Coppel Servicios', 'Llamadas', 'Activo', _today(), '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', 'DD-DD', 'DD-DD', '', '', ''])
+    # Plantilla exacta solicitada
+    writer.writerow(['ID Agente', 'Nombre Completo', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+    
+    # Fecha de hoy en formato DD/MM/YYYY
+    hoy_ddmmyyyy = datetime.now().strftime('%d/%m/%Y')
+    
+    writer.writerow([
+        'A-00001', 'Nombre Apellido', 'Supervisor 1', 'Coordinador 1', 
+        'Coppel Servicios', 'Llamadas', 'Activo', hoy_ddmmyyyy, 
+        '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', '08:00-17:00', 
+        'DD-DD', 'DD-DD'
+    ])
     return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name='plantilla_hc.csv')
 
 @hc_bp.route('/api/hc/export', methods=['GET'])
@@ -562,7 +577,28 @@ def hc_import():
                         for k in keys:
                             if k in row and row[k] is not None and str(row[k]).strip().lower() not in ('', 'nan', 'none'): return row[k]
                         return ''
-                    payload = {'agentId': str(get('ID Agente', 'agent_id', 'id')).strip(), 'fullName': str(get('Nombre Completo', 'nombre')).strip(), 'supervisor': str(get('Supervisor')).strip(), 'coordinator': str(get('Coordinador')).strip(), 'campaign': str(get('Campaña', 'campana')).strip(), 'channel': str(get('Canal')).strip() or 'Llamadas', 'hireDate': str(get('Fecha Ingreso')).strip() or None, 'email': str(get('Email')).strip(), 'employeeNumber': str(get('Número Empleado')).strip(), 'notes': str(get('Notas')).strip(), 'reason': f'Importación fila {idx+2}', 'schedules': {'Lunes': str(get('Lunes')).strip() or 'DD-DD', 'Martes': str(get('Martes')).strip() or 'DD-DD', 'Miércoles': str(get('Miércoles', 'Miercoles')).strip() or 'DD-DD', 'Jueves': str(get('Jueves')).strip() or 'DD-DD', 'Viernes': str(get('Viernes')).strip() or 'DD-DD', 'Sábado': str(get('Sábado', 'Sabado')).strip() or 'DD-DD', 'Domingo': str(get('Domingo')).strip() or 'DD-DD'}}
+                    payload = {
+                        'agentId': str(get('ID Agente', 'agent_id', 'id')).strip(), 
+                        'fullName': str(get('Nombre Completo', 'nombre')).strip(), 
+                        'supervisor': str(get('Supervisor')).strip(), 
+                        'coordinator': str(get('Coordinador')).strip(), 
+                        'campaign': str(get('Campaña', 'campana')).strip(), 
+                        'channel': str(get('Canal')).strip() or 'Llamadas', 
+                        'hireDate': str(get('Fecha Ingreso')).strip() or None, 
+                        'email': str(get('Email')).strip(), 
+                        'employeeNumber': str(get('Número Empleado')).strip(), 
+                        'notes': str(get('Notas')).strip(), 
+                        'reason': f'Importación fila {idx+2}', 
+                        'schedules': {
+                            'Lunes': str(get('Lunes')).strip() or 'DD-DD', 
+                            'Martes': str(get('Martes')).strip() or 'DD-DD', 
+                            'Miércoles': str(get('Miércoles', 'Miercoles')).strip() or 'DD-DD', 
+                            'Jueves': str(get('Jueves')).strip() or 'DD-DD', 
+                            'Viernes': str(get('Viernes')).strip() or 'DD-DD', 
+                            'Sábado': str(get('Sábado', 'Sabado')).strip() or 'DD-DD', 
+                            'Domingo': str(get('Domingo')).strip() or 'DD-DD'
+                        }
+                    }
                     if not payload['agentId'] or not payload['campaign']: raise ValueError('ID y Campaña obligatorios.')
                     _save_agent_tx(conn, payload, actor, allow_create=True); imported += 1
                 except Exception as e:
