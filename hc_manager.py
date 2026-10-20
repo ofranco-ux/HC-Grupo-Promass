@@ -135,12 +135,10 @@ def _now(): return datetime.now().isoformat(timespec='seconds')
 def _validate_date(value, field='fecha'):
     raw = str(value or '').strip()[:10]
     try:
-        # Intenta formato YYYY-MM-DD
         datetime.strptime(raw, '%Y-%m-%d')
         return raw
     except Exception:
         try:
-            # Intenta formato DD/MM/YYYY
             dt = datetime.strptime(raw, '%d/%m/%Y')
             return dt.strftime('%Y-%m-%d')
         except Exception:
@@ -555,20 +553,32 @@ def hc_import():
     f = request.files['file']
     name = (f.filename or '').lower()
     actor = str(request.form.get('actorMode', 'operaciones'))[:80]
+    
     try:
-        if name.endswith('.csv'):
-            raw_bytes = f.read()
-            try:
-                raw = raw_bytes.decode('utf-8-sig')
-            except UnicodeDecodeError:
-                raw = raw_bytes.decode('latin-1')
-            
-            df = pd.read_csv(io.StringIO(raw)) if HAS_PANDAS else [dict(r) for r in csv.DictReader(io.StringIO(raw))]
-        elif name.endswith('.xlsx'):
-            if not HAS_PANDAS: return jsonify({'error': 'Instala pandas y openpyxl.'}), 400
-            df = pd.read_excel(f, engine='openpyxl')
-        else: return jsonify({'error': 'Formato no soportado.'}), 400
-    except Exception as e: return jsonify({'error': f'Error al leer archivo: {e}'}), 400
+        file_bytes = f.read()
+        is_xlsx = file_bytes.startswith(b'PK\x03\x04')
+        
+        if HAS_PANDAS:
+            if is_xlsx:
+                df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl')
+            else:
+                try:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1')
+        else:
+            if is_xlsx:
+                return jsonify({'error': 'Para leer Excel (XLSX) instala pandas y openpyxl.'}), 400
+            else:
+                try:
+                    raw = file_bytes.decode('utf-8-sig')
+                except UnicodeDecodeError:
+                    raw = file_bytes.decode('latin-1')
+                df = [dict(r) for r in csv.DictReader(io.StringIO(raw))]
+                
+    except Exception as e:
+        return jsonify({'error': f'Error al procesar el archivo. Asegúrate de que sea un CSV o Excel válido. Detalle: {str(e)}'}), 400
+
     imported = 0; errors = []
     records = df.to_dict('records') if hasattr(df, 'to_dict') else list(df)
     with HC_LOCK:
