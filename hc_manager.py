@@ -99,8 +99,19 @@ CREATE TABLE IF NOT EXISTS hc_absences (
     absence_type TEXT NOT NULL,
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'approved',
+    reason TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
     FOREIGN KEY(agent_id) REFERENCES hc_agents(agent_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS hc_people_catalog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS hc_schedule_overrides (
@@ -143,7 +154,7 @@ def _init_db():
             conn.execute('PRAGMA synchronous=NORMAL')
             conn.executescript(SCHEMA)
             
-            # Migraciones
+            # Migraciones de columnas
             columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_transfers)").fetchall()]
             if 'from_supervisor' not in columns:
                 conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_supervisor TEXT NOT NULL DEFAULT ''")
@@ -151,6 +162,11 @@ def _init_db():
                 conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_coordinator TEXT NOT NULL DEFAULT ''")
                 conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_coordinator TEXT NOT NULL DEFAULT ''")
             
+            abs_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_absences)").fetchall()]
+            if 'status' not in abs_columns:
+                conn.execute("ALTER TABLE hc_absences ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'")
+                conn.execute("ALTER TABLE hc_absences ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+
             conn.commit()
             HC_DB_READY = True
         finally:
@@ -231,6 +247,13 @@ def _diff_agents(before, after):
     if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
     return out
 
+def _ensure_people_catalog(conn, supervisor, coordinator):
+    now = _now()
+    if supervisor:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('supervisor', ?, ?)", (supervisor.strip(), now))
+    if coordinator:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('coordinator', ?, ?)", (coordinator.strip(), now))
+
 def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
     new_id = str((payload or {}).get('agentId') or '').strip()
     if not new_id: raise ValueError('El ID del agente es obligatorio.')
@@ -240,7 +263,10 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     before = _fetch_agent(conn, old_id)
     if before is None and not allow_create: raise ValueError('No se encontró el agente.')
 
-    # Si el ID cambió, actualizamos las tablas relacionadas
+    supervisor = str(payload.get('supervisor') or '').strip()[:120]
+    coordinator = str(payload.get('coordinator') or '').strip()[:120]
+    _ensure_people_catalog(conn, supervisor, coordinator)
+
     if before and old_id != new_id:
         if conn.execute("SELECT 1 FROM hc_agents WHERE agent_id=?", (new_id,)).fetchone():
             raise ValueError('El nuevo ID de agente ya existe.')
@@ -260,13 +286,12 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
         hire_date = None
 
     now = _now()
-    
     validity = payload.get('validity') or {}
     is_temp = validity.get('type') == 'temporary'
     
     values = (
-        str(payload.get('fullName') or '').strip()[:120], str(payload.get('supervisor') or '').strip()[:120],
-        str(payload.get('coordinator') or '').strip()[:120], campaign[:120], _normalize_channel(payload.get('channel')),
+        str(payload.get('fullName') or '').strip()[:120], supervisor,
+        coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
         hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
         str(payload.get('notes') or '').strip()[:500], 
         days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo'],
@@ -366,7 +391,7 @@ def hc_list_agents():
         
         if status_filter in ('Vacación', 'Incapacidad'):
             today = _today()
-            absences = {r['agent_id']: r['absence_type'] for r in conn.execute("SELECT agent_id, absence_type FROM hc_absences WHERE start_date <= ? AND end_date >= ?", (today, today))}
+            absences = {r['agent_id']: r['absence_type'] for r in conn.execute("SELECT agent_id, absence_type FROM hc_absences WHERE start_date <= ? AND end_date >= ? AND status='approved'", (today, today))}
             filtered_rows = []
             for r in rows:
                 if r['status'] != 'Activo': continue
@@ -515,6 +540,8 @@ def hc_transfer_agent(agent_id):
                     before['supervisor'] == to_supervisor and before['coordinator'] == to_coordinator):
                     raise ValueError('No hay cambios en la asignación actual.')
 
+                _ensure_people_catalog(conn, to_supervisor, to_coordinator)
+
                 conn.execute("UPDATE hc_agents SET campaign=?, channel=?, supervisor=?, coordinator=?, updated_at=?, updated_by=? WHERE agent_id=?", 
                              (to_campaign, to_channel, to_supervisor, to_coordinator, _now(), actor, agent_id))
                 
@@ -542,6 +569,101 @@ def hc_transfer_agent(agent_id):
     except ValueError as e: return jsonify({'error': str(e)}), 400
     except Exception as e: return jsonify({'error': f'No se pudo transferir: {e}'}), 500
 
+@hc_bp.route('/api/hc/absences', methods=['GET'])
+def hc_list_absences():
+    _init_db()
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT a.*, ag.full_name 
+            FROM hc_absences a
+            JOIN hc_agents ag ON ag.agent_id = a.agent_id
+            ORDER BY a.start_date DESC LIMIT 1000
+        """).fetchall()]
+        return jsonify({'absences': rows}), 200
+    finally:
+        conn.close()
+
+@hc_bp.route('/api/hc/absences', methods=['POST'])
+def hc_create_absence():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        agent_id = str(payload.get('agentId') or '').strip()
+        abs_type = str(payload.get('absenceType') or '').strip()
+        start = _validate_date(payload.get('startDate'), 'fecha inicio')
+        end = _validate_date(payload.get('endDate'), 'fecha fin')
+        reason = str(payload.get('reason') or '')[:500]
+        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+
+        if not agent_id or abs_type not in ('vacation', 'incapacity'):
+            raise ValueError('Agente y Tipo son obligatorios.')
+        if start > end:
+            raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                if not _fetch_agent(conn, agent_id):
+                    raise ValueError('Agente no encontrado.')
+                
+                now = _now()
+                conn.execute("""
+                    INSERT INTO hc_absences (agent_id, absence_type, start_date, end_date, status, reason, created_at, created_by)
+                    VALUES (?, ?, ?, ?, 'approved', ?, ?, ?)
+                """, (agent_id, abs_type, start, end, reason, now, actor))
+                
+                _log_history(conn, agent_id, f'{abs_type}_created', None, {
+                    'startDate': start, 'endDate': end, 'reason': reason
+                }, reason, start, actor)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo registrar: {e}'}), 500
+
+@hc_bp.route('/api/hc/people', methods=['GET'])
+def hc_list_people():
+    _init_db()
+    conn = _conn()
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM hc_people_catalog ORDER BY role, name").fetchall()]
+        return jsonify({'people': rows}), 200
+    finally:
+        conn.close()
+
+@hc_bp.route('/api/hc/people', methods=['POST'])
+def hc_create_person():
+    _init_db()
+    try:
+        payload = request.get_json(force=True, silent=False) or {}
+        role = str(payload.get('role') or '').strip()
+        name = str(payload.get('name') or '').strip()
+        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+
+        if role not in ('supervisor', 'coordinator') or not name:
+            raise ValueError('Rol y Nombre son obligatorios.')
+
+        with HC_LOCK:
+            conn = _conn()
+            try:
+                now = _now()
+                conn.execute("INSERT INTO hc_people_catalog (role, name, created_at, created_by) VALUES (?, ?, ?, ?)", (role, name, now, actor))
+                conn.commit()
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                raise ValueError('Ese nombre ya está registrado.')
+            except Exception:
+                conn.rollback()
+                raise
+            finally: conn.close()
+        return jsonify({'ok': True}), 200
+    except ValueError as e: return jsonify({'error': str(e)}), 400
+    except Exception as e: return jsonify({'error': f'No se pudo crear: {e}'}), 500
+
 @hc_bp.route('/api/hc/agents/<agent_id>/history', methods=['GET'])
 def hc_agent_history(agent_id):
     _init_db()
@@ -558,22 +680,6 @@ def hc_global_history():
     try: rows = conn.execute("SELECT * FROM hc_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     finally: conn.close()
     return jsonify({'history': [{'id': r['id'], 'agentId': r['agent_id'], 'changeType': r['change_type'], 'before': json.loads(r['before_json']) if r['before_json'] else None, 'after': json.loads(r['after_json']) if r['after_json'] else None, 'reason': r['reason'] or '', 'effectiveDate': r['effective_date'], 'changedAt': r['changed_at'], 'changedBy': r['changed_by'] or ''} for r in rows]}), 200
-
-@hc_bp.route('/api/hc/terminations', methods=['GET'])
-def hc_list_terminations():
-    _init_db()
-    conn = _conn()
-    try: rows = [dict(r) for r in conn.execute("SELECT t.*, a.full_name, a.campaign, a.channel, a.supervisor FROM hc_terminations t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id ORDER BY t.termination_date DESC LIMIT 1000").fetchall()]
-    finally: conn.close()
-    return jsonify({'terminations': rows}), 200
-
-@hc_bp.route('/api/hc/transfers', methods=['GET'])
-def hc_list_transfers():
-    _init_db()
-    conn = _conn()
-    try: rows = [dict(r) for r in conn.execute("SELECT t.*, a.full_name FROM hc_transfers t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id ORDER BY t.effective_date DESC LIMIT 1000").fetchall()]
-    finally: conn.close()
-    return jsonify({'transfers': rows}), 200
 
 @hc_bp.route('/api/hc/metrics', methods=['GET'])
 def hc_metrics():
@@ -725,7 +831,8 @@ def hc_list_campaigns():
 def hc_list_supervisors():
     _init_db()
     conn = _conn()
-    try: rows = [r['supervisor'] for r in conn.execute("SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> '' ORDER BY supervisor").fetchall()]
+    try: 
+        rows = [r['name'] for r in conn.execute("SELECT name FROM hc_people_catalog WHERE role='supervisor' ORDER BY name").fetchall()]
     finally: conn.close()
     return jsonify({'supervisors': rows}), 200
 
@@ -822,9 +929,13 @@ def hc_import():
                     
                     agent_id = get('ID Agente', 'agent_id', 'id')
                     campaign = get('Campaña', 'campana')
+                    supervisor = get('Supervisor')
+                    coordinator = get('Coordinador')
                     
                     if not agent_id or not campaign:
                         raise ValueError('ID y Campaña son obligatorios.')
+                        
+                    _ensure_people_catalog(conn, supervisor, coordinator)
                         
                     hire_date_raw = get('Fecha Ingreso')
                     hire_date = None
@@ -878,7 +989,7 @@ def hc_import():
                             updated_at=excluded.updated_at,
                             updated_by=excluded.updated_by
                     """, (
-                        agent_id, get('Nombre Completo', 'nombre'), get('Supervisor'), get('Coordinador'),
+                        agent_id, get('Nombre Completo', 'nombre'), supervisor, coordinator,
                         campaign, _normalize_channel(get('Canal')),
                         hire_date, get('Email'), get('Número Empleado'), get('Notas'),
                         schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
