@@ -162,7 +162,6 @@ def _normalize_channel(value):
     return 'Llamadas'
 
 def _normalize_col(col_name):
-    # Normaliza unicode, remueve acentos y deja solo letras y números en minúscula
     col = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
     return re.sub(r'[^a-z0-9]', '', col.lower())
 
@@ -500,7 +499,13 @@ def hc_metrics():
         active = conn.execute("SELECT COUNT(*) FROM hc_agents WHERE status='Activo' AND (termination_date IS NULL OR termination_date > ?)", (today,)).fetchone()[0]
         active_at_start = conn.execute("SELECT COUNT(*) FROM hc_agents WHERE (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date > ?)", (start, start)).fetchone()[0]
         by_campaign = [dict(r) for r in conn.execute("SELECT campaign, channel, COUNT(*) AS count FROM hc_agents WHERE status='Activo' AND (termination_date IS NULL OR termination_date > ?) GROUP BY campaign, channel ORDER BY count DESC", (today,)).fetchall()]
-        terminations = conn.execute("SELECT COUNT(*) FROM hc_terminations WHERE termination_date BETWEEN ? AND ?", (start, end)).fetchone()[0]
+        
+        # Calcular bajas directamente de hc_agents para asegurar que siempre cuente
+        terminations = conn.execute("""
+            SELECT COUNT(*) FROM hc_agents 
+            WHERE status='Baja' AND termination_date IS NOT NULL AND termination_date BETWEEN ? AND ?
+        """, (start, end)).fetchone()[0]
+        
         new_hires = conn.execute("SELECT COUNT(*) FROM hc_agents WHERE hire_date BETWEEN ? AND ?", (start, end)).fetchone()[0]
         transfers = conn.execute("SELECT COUNT(*) FROM hc_transfers WHERE effective_date BETWEEN ? AND ?", (start, end)).fetchone()[0]
         attrition = round((terminations / active_at_start * 100), 2) if active_at_start > 0 else 0.0
@@ -684,13 +689,13 @@ def hc_import():
                         now, now, actor
                     ))
 
-                    # 2. Si es baja, registrar en la tabla de terminaciones para que cuente en los KPIs
+                    # 2. Si es baja, registrar/actualizar en la tabla de terminaciones
                     if is_baja:
+                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (agent_id,))
                         conn.execute("""
                             INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by)
-                            SELECT ?, ?, 'Importación CSV', 1, ?, ?
-                            WHERE NOT EXISTS (SELECT 1 FROM hc_terminations WHERE agent_id = ?)
-                        """, (agent_id, term_date, now, actor, agent_id))
+                            VALUES (?, ?, 'Importación CSV', 1, ?, ?)
+                        """, (agent_id, term_date, now, actor))
 
                     imported += 1
                 except Exception as e:
@@ -729,6 +734,7 @@ def hc_bulk_terminate():
                         if before.get('terminationDate'): results.append({'agentId': aid, 'status': 'skipped', 'reason': 'Ya tiene baja'}); continue
                         new_status = 'Baja' if date <= _today() else 'Activo'
                         conn.execute("UPDATE hc_agents SET status=?, termination_date=?, termination_reason=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_status, date, reason, _now(), actor, aid))
+                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (aid,))
                         conn.execute("INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)", (aid, date, reason, rehireable, _now(), actor))
                         _log_history(conn, aid, 'agent_terminated', before, {'terminationDate': date, 'reason': reason}, reason, date, actor)
                         results.append({'agentId': aid, 'status': 'ok'})
