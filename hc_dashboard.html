@@ -8,114 +8,126 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
     :root {
-        --promass-navy: #0A335B;
-        --promass-gold: #EAB52D;
-        --promass-navy-light: #F0F4F9;
-        --promass-gray: #F4F7F9;
+        --navy: #0A335B;
+        --navy-dark: #072240;
+        --navy-light: #E5EFF6;
+        --gold: #EAB52D;
+        --gold-hover: #DCA421;
+        --bg-main: #EEF3F8;
+        --surface: #FFFFFF;
     }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--promass-gray); margin: 0; padding: 20px; color: #2A4358; }
-    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 24px; border: 1px solid #D5DFE7; background: #FFF; box-shadow: 0 38px 90px -48px rgba(10,51,91,.4); overflow: hidden; min-height: calc(100vh - 40px); }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-main); margin: 0; padding: 20px; color: #334155; }
     
-    /* HEADER CON LOGO Y TÍTULO */
-    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 20px; background: #FFF; border-bottom: 3px solid var(--promass-navy); }
-    .roster-head-left { display: flex; align-items: center; gap: 16px; }
-    .brand-logo { display: flex; align-items: center; }
-    .brand-logo img { height: 54px; width: auto; object-fit: contain; }
+    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 20px; border: 1px solid #CBD5E1; background: var(--surface); box-shadow: 0 20px 50px -20px rgba(10,51,91,.15); overflow: hidden; min-height: calc(100vh - 40px); }
     
-    /* TÍTULO HEADCOUNT */
-    .header-title-group { display: flex; flex-direction: column; justify-content: center; border-left: 1px solid #D5DFE7; padding-left: 16px; }
-    .header-main-title { margin: 0; font-size: 22px; font-weight: 900; color: var(--promass-navy); line-height: 1.1; letter-spacing: -0.5px; }
-    .header-sub-title { font-size: 9px; font-weight: 800; color: #7A8FA3; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+    /* HEADER CORPORATIVO */
+    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 24px; background: var(--navy); color: #FFF; }
+    .roster-head-left { display: flex; align-items: center; gap: 20px; }
+    
+    .brand-logo { display: flex; align-items: center; background: #FFF; padding: 6px 12px; border-radius: 8px; }
+    .brand-logo img { height: 38px; width: auto; object-fit: contain; }
+    
+    .header-title-group { display: flex; flex-direction: column; justify-content: center; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 20px; }
+    .header-main-title { margin: 0; font-size: 24px; font-weight: 900; color: #FFF; line-height: 1.1; letter-spacing: -0.5px; }
+    .header-sub-title { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
 
-    .roster-head-actions { display: flex; align-items: center; gap: 8px; }
-    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: var(--promass-navy); font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
-    .roster-head-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
-    .roster-head-btn.primary { background: var(--promass-navy); border-color: var(--promass-navy); color: #FFF; }
-    .roster-head-btn.primary:hover { background: #072544; }
-    .roster-head-btn.gold { background: var(--promass-gold); border-color: var(--promass-gold); color: var(--promass-navy); }
-    .roster-head-btn.gold:hover { background: #DCA421; }
+    .roster-head-actions { display: flex; align-items: center; gap: 10px; }
+    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .roster-head-btn:hover { background: rgba(255,255,255,0.1); border-color: #FFF; }
+    .roster-head-btn.gold { background: var(--gold); border-color: var(--gold); color: var(--navy); }
+    .roster-head-btn.gold:hover { background: var(--gold-hover); }
     
     /* KPIS */
-    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; padding: 16px 20px; background: var(--promass-navy-light); }
-    .roster-kpi { padding: 12px 14px; border-radius: 12px; border: 1px solid #D5DFE7; background: #FFF; min-width: 0; box-shadow: 0 4px 12px -6px rgba(10,51,91,0.05); }
-    .roster-kpi-label { color: #7A8FA3; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-    .roster-kpi-value { margin-top: 4px; color: var(--promass-navy); font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .roster-kpi-detail { margin-top: 2px; color: #93A4B5; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
+    .roster-kpi { padding: 16px; border-radius: 12px; border: 1px solid #CBD5E1; background: var(--surface); min-width: 0; box-shadow: 0 4px 6px -4px rgba(0,0,0,0.05); }
+    .roster-kpi.is-primary { background: var(--navy); border-color: var(--navy); }
+    .roster-kpi.is-primary .roster-kpi-label { color: #9BB5D6; }
+    .roster-kpi.is-primary .roster-kpi-value { color: #FFF; }
+    .roster-kpi.is-primary .roster-kpi-detail { color: #9BB5D6; }
+    
+    .roster-kpi-label { color: #64748B; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+    .roster-kpi-value { margin-top: 6px; color: var(--navy); font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-kpi-detail { margin-top: 4px; color: #94A3B8; font-size: 9px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* TOOLBAR */
-    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 8px; padding: 16px 20px 12px; align-items: end; }
-    .roster-input, .roster-select { width: 100%; min-height: 38px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #2A4358; padding: 0 10px; font-size: 10px; font-weight: 600; outline: none; transition: .15s; }
-    .roster-input:focus, .roster-select:focus { border-color: var(--promass-navy); box-shadow: 0 0 0 3px rgba(10,51,91,0.1); }
-    .roster-toolbar-btn { min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: var(--promass-navy); font-size: 9px; font-weight: 800; cursor: pointer; white-space: nowrap; transition: .15s; }
-    .roster-toolbar-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
+    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 10px; padding: 20px 24px 16px; align-items: end; }
+    .roster-input, .roster-select { width: 100%; min-height: 40px; border-radius: 8px; border: 1px solid #CBD5E1; background: var(--surface); color: var(--navy); padding: 0 12px; font-size: 11px; font-weight: 600; outline: none; transition: .15s; }
+    .roster-input:focus, .roster-select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(10,51,91,0.15); }
+    .roster-toolbar-btn { min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--navy); background: var(--navy); color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; white-space: nowrap; transition: .15s; }
+    .roster-toolbar-btn:hover { background: var(--navy-dark); }
 
-    .roster-content { padding: 0 20px 20px; flex: 1; display: flex; flex-direction: column; }
-    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D5DFE7; border-radius: 12px; background: #FFF; max-height: 500px; }
-    .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10px; min-width: 1200px; }
-    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 10px 8px; background: var(--promass-navy-light); color: var(--promass-navy); font-size: 8px; text-transform: uppercase; letter-spacing: .07em; text-align: left; border-bottom: 2px solid #D5DFE7; white-space: nowrap; }
-    .roster-table td { padding: 9px 8px; color: #3F586E; border-bottom: 1px solid #EEF2F5; white-space: nowrap; vertical-align: middle; }
+    .roster-content { padding: 0 24px 24px; flex: 1; display: flex; flex-direction: column; }
+    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #CBD5E1; border-radius: 12px; background: var(--surface); max-height: 500px; }
+    .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; min-width: 1200px; }
+    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 12px 10px; background: var(--navy); color: #FFF; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; text-align: left; white-space: nowrap; }
+    .roster-table th:first-child { border-top-left-radius: 10px; }
+    .roster-table th:last-child { border-top-right-radius: 10px; }
+    .roster-table td { padding: 10px; color: #475569; border-bottom: 1px solid #E2E8F0; white-space: nowrap; vertical-align: middle; }
     .roster-table tr:hover td { background: #F8FAFC; }
     
-    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--promass-navy); }
-    .roster-agent-name { font-weight: 700; color: var(--promass-navy); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 6px; align-items: center; border-radius: 6px; background: #EFF4F7; color: #526A7E; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 800; }
-    .roster-schedule.off { background: #F4F5F7; color: #9AA6B1; }
+    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--navy); }
+    .roster-agent-name { font-weight: 700; color: var(--navy); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 8px; align-items: center; border-radius: 6px; background: #F1F5F9; color: #475569; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; }
+    .roster-schedule.off { background: #F8FAFC; color: #94A3B8; }
     
-    .roster-status { display: inline-flex; min-height: 22px; padding: 0 7px; align-items: center; border-radius: 999px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
-    .roster-status.active { background: #DEF1EC; color: #27766C; }
-    .roster-status.inactive { background: #F1E4E7; color: #A05263; }
-    .roster-status.vacation { background: #E9F1FB; color: #3B5998; }
+    .roster-status { display: inline-flex; min-height: 22px; padding: 0 8px; align-items: center; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .roster-status.active { background: #DCFCE7; color: #166534; }
+    .roster-status.inactive { background: #FEE2E2; color: #991B1B; }
+    .roster-status.vacation { background: #DBEAFE; color: #1E40AF; }
     .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
     
-    .roster-edit-btn { min-height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid #D5DFE7; color: var(--promass-navy); background: #FFF; font-size: 8px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .roster-edit-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
+    .roster-edit-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #CBD5E1; color: var(--navy); background: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .roster-edit-btn:hover { background: var(--navy-light); border-color: var(--navy); }
 
-    .download-block { margin: 0 20px 14px; padding: 14px; border: 1px solid #D5DFE7; border-radius: 12px; background: var(--promass-navy-light); color: var(--promass-navy); }
-    .download-block input[type="date"] { min-height: 34px; padding: 0 8px; font-size: 11px; border-color: #D5DFE7; }
+    .download-block { margin: 0 24px 20px; padding: 16px; border-radius: 12px; background: var(--navy); color: #FFF; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    .download-block strong { color: #FFF; font-size: 13px; display: block; margin-bottom: 4px; }
+    .download-block p { color: #9BB5D6; font-size: 11px; margin: 0; }
+    .download-block input[type="date"] { min-height: 36px; padding: 0 10px; font-size: 11px; border-radius: 6px; border: none; color: var(--navy); font-weight: 700; }
 
     /* Cronograma */
-    .schedule-section { margin-top: 14px; padding: 16px; border: 1px solid #D5DFE7; border-radius: 14px; background: #FFF; }
-    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-    .schedule-title { font-size: 13px; font-weight: 800; color: var(--promass-navy); }
-    .schedule-tabs { display: flex; gap: 4px; }
-    .schedule-tab { padding: 6px 12px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #7A8FA3; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .schedule-tab.active { border-color: var(--promass-navy); background: var(--promass-navy); color: #FFF; }
-    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
-    .schedule-metric { padding: 12px; border-radius: 10px; border: 1px solid #E0E7ED; background: #F8FAFB; }
-    .schedule-metric-label { font-size: 8px; font-weight: 800; color: #8998A6; text-transform: uppercase; }
-    .schedule-metric-value { margin-top: 4px; font-size: 15px; font-weight: 800; color: var(--promass-navy); font-family: 'JetBrains Mono', monospace; }
-    .schedule-chart-container { display: flex; align-items: flex-end; height: 170px; gap: 3px; padding: 16px 10px 24px; border-radius: 10px; border: 1px solid #E2E8ED; background: linear-gradient(to top, rgba(10,51,91,.04) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
+    .schedule-section { margin-top: 10px; padding: 20px; border: 1px solid #CBD5E1; border-radius: 12px; background: var(--surface); }
+    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .schedule-title { font-size: 15px; font-weight: 900; color: var(--navy); }
+    .schedule-tabs { display: flex; gap: 4px; background: #F1F5F9; padding: 4px; border-radius: 8px; }
+    .schedule-tab { padding: 6px 14px; border-radius: 6px; border: none; background: transparent; color: #64748B; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .schedule-tab.active { background: var(--navy); color: #FFF; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .schedule-metric { padding: 14px; border-radius: 10px; border: 1px solid #E2E8F0; background: #F8FAFC; }
+    .schedule-metric-label { font-size: 9px; font-weight: 800; color: #64748B; text-transform: uppercase; }
+    .schedule-metric-value { margin-top: 4px; font-size: 18px; font-weight: 900; color: var(--navy); font-family: 'JetBrains Mono', monospace; }
+    .schedule-chart-container { display: flex; align-items: flex-end; height: 180px; gap: 4px; padding: 16px 12px 28px; border-radius: 10px; border: 1px solid #E2E8F0; background: linear-gradient(to top, rgba(10,51,91,.06) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
     .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
-    .chart-bar { width: 100%; max-width: 18px; background: var(--promass-navy); border-radius: 3px 3px 0 0; transition: height 0.3s ease; min-height: 2px; }
-    .chart-bar-label { position: absolute; bottom: -20px; font-size: 7px; font-family: 'JetBrains Mono', monospace; color: #8A99A7; }
-    .chart-bar-value { position: absolute; font-size: 7px; font-weight: 800; color: var(--promass-navy); margin-bottom: 2px; }
+    .chart-bar { width: 100%; max-width: 20px; background: var(--navy); border-radius: 4px 4px 0 0; transition: height 0.3s ease; min-height: 2px; }
+    .chart-bar-label { position: absolute; bottom: -22px; font-size: 8px; font-family: 'JetBrains Mono', monospace; color: #64748B; }
+    .chart-bar-value { position: absolute; font-size: 8px; font-weight: 800; color: var(--navy); margin-bottom: 4px; }
 
     /* Modales */
-    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10,51,91,.4); backdrop-filter: blur(4px); }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10,51,91,.6); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
-    .modal { width: 100%; max-width: 580px; max-height: calc(100vh - 40px); background: #FFF; border-radius: 16px; border: 1px solid #D5DFE7; box-shadow: 0 28px 60px -30px rgba(10,51,91,.4); overflow: hidden; display: flex; flex-direction: column; }
+    .modal { width: 100%; max-width: 580px; max-height: calc(100vh - 40px); background: var(--surface); border-radius: 16px; border: 1px solid #CBD5E1; box-shadow: 0 28px 60px -30px rgba(10,51,91,.5); overflow: hidden; display: flex; flex-direction: column; }
     .modal-lg { max-width: 800px; }
-    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #D5DFE7; background: var(--promass-navy-light); }
-    .modal-title { font-size: 16px; font-weight: 800; color: var(--promass-navy); margin: 0; }
-    .modal-sub { font-size: 10px; color: #5A738C; margin: 3px 0 0; }
-    .modal-close { width: 30px; height: 30px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #5A738C; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
-    .modal-body { padding: 20px; overflow-y: auto; }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid #D5DFE7; background: var(--promass-navy-light); }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 20px; border-bottom: 1px solid #E2E8F0; background: var(--navy); }
+    .modal-title { font-size: 18px; font-weight: 900; color: #FFF; margin: 0; }
+    .modal-sub { font-size: 11px; color: #9BB5D6; margin: 4px 0 0; }
+    .modal-close { width: 32px; height: 32px; border-radius: 8px; border: none; background: rgba(255,255,255,0.1); color: #FFF; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+    .modal-close:hover { background: rgba(255,255,255,0.2); }
+    .modal-body { padding: 24px; overflow-y: auto; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid #E2E8F0; background: #F8FAFC; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .field-full { grid-column: 1 / -1; }
-    .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label { font-size: 9px; font-weight: 800; color: #5A738C; text-transform: uppercase; letter-spacing: 0.5px; }
-    .form-section-title { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--promass-navy); margin: 16px 0 10px; padding-top: 10px; border-top: 1px solid #D5DFE7; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 10px; font-weight: 800; color: var(--navy); text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-section-title { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--navy); margin: 20px 0 12px; padding-top: 12px; border-top: 1px solid #E2E8F0; }
     .form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
     
-    .btn-save { min-height: 38px; padding: 0 20px; border-radius: 8px; border: 1px solid transparent; background: var(--promass-navy); color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .btn-save:hover { background: #072544; }
-    .btn-cancel { min-height: 38px; padding: 0 20px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #5A738C; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .btn-cancel:hover { background: #F4F7F9; }
+    .btn-save { min-height: 40px; padding: 0 24px; border-radius: 8px; border: none; background: var(--navy); color: #FFF; font-size: 11px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .btn-save:hover { background: var(--navy-dark); }
+    .btn-cancel { min-height: 40px; padding: 0 24px; border-radius: 8px; border: 1px solid #CBD5E1; background: #FFF; color: #475569; font-size: 11px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .btn-cancel:hover { background: #F1F5F9; }
 
-    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 12px 16px; border-radius: 10px; color: #FFF; font-size: 11px; font-weight: 700; background: var(--promass-navy); border: 1px solid #1A4973; box-shadow: 0 16px 36px -22px rgba(10,51,91,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
+    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 14px 18px; border-radius: 10px; color: #FFF; font-size: 12px; font-weight: 700; background: var(--navy); border-left: 4px solid var(--gold); box-shadow: 0 16px 36px -22px rgba(10,51,91,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
     .toast.is-visible { opacity: 1; transform: translateY(0); }
-    .toast.is-error { background: #8A4052; border-color: #A95468; }
+    .toast.is-error { background: #991B1B; border-left-color: #FCA5A5; }
 
     @media (max-width: 1050px) {
         .roster-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -123,14 +135,13 @@
         .schedule-metrics { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 640px) {
-        body { padding: 6px; }
+        body { padding: 10px; }
         .roster-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .roster-toolbar { grid-template-columns: 1fr; }
         .form-grid { grid-template-columns: 1fr; }
-        .roster-head { flex-direction: column; align-items: flex-start; gap: 12px; }
-        .roster-head-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
-        .header-title-group { border-left: none; padding-left: 0; }
-        .brand-logo img { height: 40px; }
+        .roster-head { flex-direction: column; align-items: stretch; gap: 16px; }
+        .roster-head-actions { justify-content: flex-start; flex-wrap: wrap; }
+        .header-title-group { border-left: none; padding-left: 0; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 12px; margin-top: 4px; }
     }
 </style>
 </head>
@@ -141,8 +152,7 @@
     <div class="roster-head">
         <div class="roster-head-left">
             <div class="brand-logo">
-                <!-- Asegúrate de tener logo.png en tu repo -->
-                <img src="logo.png" alt="Grupo Promass Logo" onerror="this.outerHTML='<h2 style=\'color:#0A335B; font-weight:900; font-size:22px; margin:0;\'>GRUPO <span style=\'color:#EAB52D;\'>PROMASS</span></h2>'">
+                <img src="logo.png" alt="Grupo Promass Logo" onerror="this.outerHTML='<h2 style=\'color:#0A335B; font-weight:900; font-size:20px; margin:0;\'>GRUPO <span style=\'color:#EAB52D;\'>PROMASS</span></h2>'">
             </div>
             <div class="header-title-group">
                 <h1 class="header-main-title">HeadCount</h1>
@@ -150,20 +160,20 @@
             </div>
         </div>
         <div class="roster-head-actions">
-            <span style="color:#27766C;font-size:8px;font-weight:800;margin-right:10px;display:flex;align-items:center;gap:4px;">
-                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#27766C;"></span> Sincronizado
+            <span style="color:#83D5A6;font-size:9px;font-weight:800;margin-right:10px;display:flex;align-items:center;gap:6px;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#83D5A6;box-shadow:0 0 8px #83D5A6;"></span> Sincronizado
             </span>
             <button class="roster-head-btn" onclick="downloadTemplate()"><span>Plantilla</span></button>
             <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()" title="Carga masiva"><span>Carga Excel</span></button>
             <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
             <button class="roster-head-btn" onclick="exportCsv()"><span>Exportar</span></button>
-            <button class="roster-head-btn primary" onclick="openAgentModal()"><span>+ Agente</span></button>
+            <button class="roster-head-btn" style="background:#FFF; color:#0A335B; border:none;" onclick="openAgentModal()"><span>+ Agente</span></button>
         </div>
     </div>
 
     <!-- KPIS -->
     <div class="roster-kpis">
-        <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
+        <div class="roster-kpi is-primary"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
@@ -188,14 +198,15 @@
     </div>
 
     <div class="download-block">
-        <strong style="font-size:11px; color:var(--promass-navy);">Descargar roster por fechas</strong>
-        <p style="font-size:10px;margin:4px 0 8px; color:#5A738C;">Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
+        <div>
+            <strong>Descargar roster por fechas</strong>
+            <p>Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
+        </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <label style="font-size:10px;font-weight:800;color:var(--promass-navy);">Desde</label>
-            <input id="rosterEffectiveStart" type="date" class="roster-input" style="width:130px;">
-            <label style="font-size:10px;font-weight:800;color:var(--promass-navy);">Hasta</label>
-            <input id="rosterEffectiveEnd" type="date" class="roster-input" style="width:130px;">
-            <button type="button" class="roster-toolbar-btn" onclick="exportCsv()">Descargar roster efectivo CSV</button>
+            <input id="rosterEffectiveStart" type="date">
+            <span style="color:#FFF;font-weight:700;">a</span>
+            <input id="rosterEffectiveEnd" type="date">
+            <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportCsv()">Descargar CSV</button>
         </div>
     </div>
 
@@ -211,7 +222,7 @@
                     </tr>
                 </thead>
                 <tbody id="agentsBody">
-                    <tr><td colspan="16" style="text-align:center;padding:30px;color:#7D8FA1">Cargando roster operativo…</td></tr>
+                    <tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Cargando roster operativo…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -221,7 +232,7 @@
             <div class="schedule-header">
                 <div>
                     <div class="schedule-title">Distribución de horarios por franja</div>
-                    <div style="font-size:9px; color:#7B8D9E; margin-top:4px;">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior.</div>
+                    <div style="font-size:10px; color:#64748B; margin-top:4px;">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior.</div>
                 </div>
                 <div class="schedule-tabs" id="scheduleTabs"></div>
             </div>
@@ -284,7 +295,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeAgentModal()">Cancelar</button>
-      <button class="btn-save" id="agentSaveBtn" onclick="document.getElementById('agentForm').requestSubmit()">Guardar</button>
+      <button class="btn-save" id="agentSaveBtn" onclick="document.getElementById('agentForm').requestSubmit()">Guardar cambios</button>
     </div>
   </div>
 </div>
@@ -301,7 +312,7 @@
       <div class="form-grid">
         <div class="field field-full"><label>Fecha de baja *</label><input id="terminateDate" type="date" class="roster-input" required></div>
         <div class="field field-full"><label>Motivo</label><input id="terminateReason" class="roster-input" maxlength="500"></div>
-        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:11px;color:#41536A;cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
+        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:11px;color:#334155;cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -431,7 +442,7 @@ async function loadAgents() {
 function renderAgents() {
   const body = document.getElementById('agentsBody');
   if (!state.agents.length) {
-    body.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:30px;color:#7D8FA1">Sin colaboradores registrados para estos filtros.</td></tr>';
+    body.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Sin colaboradores registrados para estos filtros.</td></tr>';
     return;
   }
   
@@ -465,9 +476,9 @@ function renderAgents() {
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
           ${a.terminationDate
-              ? `<button class="roster-edit-btn" style="color:#27766C" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
+              ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
               : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
-                 <button class="roster-edit-btn" style="color:#A05263" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
+                 <button class="roster-edit-btn" style="color:#991B1B" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
         </td>
       </tr>`;
   }).join('');
