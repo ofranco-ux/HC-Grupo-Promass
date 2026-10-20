@@ -203,9 +203,9 @@
             <p>Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <input id="rosterEffectiveStart" type="date">
+            <input id="rosterEffectiveStart" type="date" onchange="refreshMetrics()">
             <span style="color:#FFF;font-weight:700;">a</span>
-            <input id="rosterEffectiveEnd" type="date">
+            <input id="rosterEffectiveEnd" type="date" onchange="refreshMetrics()">
             <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportCsv()">Descargar CSV</button>
         </div>
     </div>
@@ -406,8 +406,13 @@ async function refreshFilters() {
 }
 
 async function refreshMetrics() {
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  let url = '/api/hc/metrics';
+  if (start && end) url += `?start=${start}&end=${end}`;
+  
   try {
-    const m = await api.get('/api/hc/metrics');
+    const m = await api.get(url);
     document.getElementById('kpiActive').textContent = m.active;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
     document.getElementById('kpiSupervisors').textContent = state.supervisors.length;
