@@ -31,11 +31,15 @@
     .header-main-title { margin: 0; font-size: 24px; font-weight: 900; color: #FFF; line-height: 1.1; letter-spacing: -0.5px; }
     .header-sub-title { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
 
-    .roster-head-actions { display: flex; align-items: center; gap: 10px; }
-    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .roster-head-actions { display: flex; align-items: center; gap: 8px; }
+    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; display: flex; align-items: center; justify-content: center;}
     .roster-head-btn:hover { background: rgba(255,255,255,0.1); border-color: #FFF; }
     .roster-head-btn.gold { background: var(--gold); border-color: var(--gold); color: var(--navy); }
     .roster-head-btn.gold:hover { background: var(--gold-hover); }
+    .roster-head-btn.white { background: #FFF; color: var(--navy); border-color: #FFF; }
+    .roster-head-btn.white:hover { background: #F1F5F9; }
+    .roster-head-btn.secondary { background: rgba(255,255,255,0.05); border-color: transparent; color: #9BB5D6; }
+    .roster-head-btn.secondary:hover { background: rgba(255,255,255,0.1); color: #FFF; }
     
     /* KPIS */
     .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
@@ -125,9 +129,6 @@
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .field-full { grid-column: 1 / -1; }
     
-    .link-btn { background: none; border: none; color: #94A3B8; font-size: 11px; font-weight: 600; text-align: left; padding: 0; cursor: pointer; margin-top: 4px; }
-    .link-btn:hover { color: #3B82F6; }
-    
     /* Vigencia Toggle */
     .validity-toggle { display: flex; background: #F1F5F9; border-radius: 10px; padding: 4px; border: 1px solid #E2E8F0; }
     .validity-btn { flex: 1; text-align: center; padding: 8px; border-radius: 8px; font-size: 12px; font-weight: 700; color: #64748B; cursor: pointer; border: 1px solid transparent; transition: .15s; }
@@ -180,11 +181,15 @@
             <span style="color:#83D5A6;font-size:9px;font-weight:800;margin-right:10px;display:flex;align-items:center;gap:6px;">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#83D5A6;box-shadow:0 0 8px #83D5A6;"></span> Sincronizado
             </span>
-            <button class="roster-head-btn" onclick="downloadTemplate()"><span>Plantilla</span></button>
-            <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()" title="Carga masiva"><span>Carga Excel</span></button>
+            <button class="roster-head-btn secondary" onclick="downloadTemplate()">Plantilla</button>
+            <button class="roster-head-btn secondary" onclick="exportCsv()">Exportar</button>
+            <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+            <button class="roster-head-btn secondary" onclick="openAbsenceModal()">+ Incapacidad/Vacaciones</button>
+            <button class="roster-head-btn secondary" onclick="openPeopleModal()">+ Directorio</button>
+            <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+            <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()">Carga Excel</button>
+            <button class="roster-head-btn white" onclick="openAgentModal()">+ Agente</button>
             <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
-            <button class="roster-head-btn" onclick="exportCsv()"><span>Exportar</span></button>
-            <button class="roster-head-btn" style="background:#FFF; color:#0A335B; border:none;" onclick="openAgentModal()"><span>+ Agente</span></button>
         </div>
     </div>
 
@@ -399,6 +404,69 @@
   </div>
 </div>
 
+<!-- Modal: Registrar Incapacidad/Vacaciones -->
+<div id="absenceModal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-header">
+      <div><h3 class="modal-title">Registrar Ausencia</h3><p class="modal-sub">Ingresa vacaciones o incapacidades aprobadas.</p></div>
+      <button class="modal-close" onclick="closeAbsenceModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field field-full">
+          <label>Agente *</label>
+          <select id="absenceAgent" class="roster-select" required>
+            <option value="">Selecciona un agente</option>
+          </select>
+        </div>
+        <div class="field field-full">
+          <label>Tipo de Ausencia *</label>
+          <select id="absenceType" class="roster-select" required>
+            <option value="vacation">Vacaciones Aprobadas</option>
+            <option value="incapacity">Incapacidad Aprobada</option>
+          </select>
+        </div>
+        <div class="field"><label>Fecha Inicio *</label><input id="absenceStart" type="date" required></div>
+        <div class="field"><label>Fecha Fin *</label><input id="absenceEnd" type="date" required></div>
+        <div class="field field-full"><label>Motivo / Folio</label><input id="absenceReason" maxlength="500" placeholder="Ej. Folio IMSS, vacaciones anuales..."></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAbsenceModal()">Cancelar</button>
+      <button class="btn-save" id="absenceBtn" onclick="submitAbsence()">Registrar Ausencia</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Directorio (Supervisores/Coordinadores) -->
+<div id="peopleModal" class="modal-backdrop hidden">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-header">
+      <div><h3 class="modal-title">Directorio</h3><p class="modal-sub">Agrega nuevos supervisores o coordinadores.</p></div>
+      <button class="modal-close" onclick="closePeopleModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field field-full">
+          <label>Rol *</label>
+          <select id="peopleRole" class="roster-select" required>
+            <option value="supervisor">Supervisor</option>
+            <option value="coordinator">Coordinador</option>
+          </select>
+        </div>
+        <div class="field field-full">
+          <label>Nombre Completo *</label>
+          <input id="peopleName" maxlength="120" placeholder="Nombre y apellidos" required>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closePeopleModal()">Cancelar</button>
+      <button class="btn-save" id="peopleBtn" onclick="submitPerson()">Guardar Persona</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -443,12 +511,13 @@ async function refreshAll() {
 
 async function refreshFilters() {
   try {
-    const [c, s] = await Promise.all([ api.get('/api/hc/campaigns'), api.get('/api/hc/supervisors') ]);
+    const [c, s, p] = await Promise.all([ api.get('/api/hc/campaigns'), api.get('/api/hc/supervisors'), api.get('/api/hc/people') ]);
     state.campaigns = c.campaigns || [];
     state.supervisors = s.supervisors || [];
-    const agentRes = await api.get('/api/hc/agents');
-    state.coordinators = [...new Set(agentRes.agents.map(a => a.coordinator).filter(Boolean))].sort();
-
+    
+    const people = p.people || [];
+    state.coordinators = [...new Set(people.filter(x=>x.role==='coordinator').map(x=>x.name))].sort();
+    
     const setOptions = (id, items, defaultText) => {
         const sel = document.getElementById(id);
         if (!sel) return;
@@ -467,6 +536,10 @@ async function refreshFilters() {
     setOptions('transferSupervisor', state.supervisors, 'Selecciona un supervisor');
     setOptions('fldCoordinator', state.coordinators, 'Selecciona un coordinador');
     setOptions('transferCoordinator', state.coordinators, 'Selecciona un coordinador');
+    
+    // Llenar el select de agentes en el modal de ausencias
+    const agentOptions = state.agents.map(a => `<option value="${escapeAttr(a.agentId)}">${escape(a.agentId)} - ${escape(a.fullName)}</option>`).join('');
+    document.getElementById('absenceAgent').innerHTML = '<option value="">Selecciona un agente</option>' + agentOptions;
     
   } catch (e) { console.warn('refreshFilters:', e); }
 }
@@ -704,7 +777,6 @@ function openAgentModal(agentId = null) {
   const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
   const fld = id => document.getElementById(id);
 
-  // Título dinámico
   if (a) {
     document.getElementById('agentModalTitle').textContent = `Editar · ${a.fullName || 'Sin nombre'} (${a.agentId})`;
   } else {
@@ -712,7 +784,7 @@ function openAgentModal(agentId = null) {
   }
 
   fld('fldAgentId').value = a?.agentId || ''; 
-  fld('fldAgentId').disabled = false; // Habilitado para editar en ambos casos
+  fld('fldAgentId').disabled = false; 
   
   fld('fldFullName').value = a?.fullName || ''; 
   fld('fldSupervisor').value = a?.supervisor || '';
@@ -728,7 +800,6 @@ function openAgentModal(agentId = null) {
   fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
   fld('fldDom').value = sched.Domingo || 'DD-DD';
   
-  // Bloqueos para edición
   const isEdit = !!agentId;
   fld('fldCampaign').disabled = isEdit;
   fld('fldChannel').disabled = isEdit;
@@ -737,10 +808,8 @@ function openAgentModal(agentId = null) {
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
 
-  // Ocultar Estatus para Nuevo Agente
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
-  // Vigencia
   if (isEdit) {
     document.getElementById('validitySection').classList.remove('hidden');
     setValidity('permanent');
@@ -876,6 +945,55 @@ async function reactivateAgent(agentId) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+/* =======================================================
+   NUEVOS MODALES: AUSENCIAS Y DIRECTORIO
+   ======================================================= */
+function openAbsenceModal() {
+  document.getElementById('absenceAgent').value = '';
+  document.getElementById('absenceType').value = 'vacation';
+  document.getElementById('absenceStart').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('absenceEnd').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('absenceReason').value = '';
+  document.getElementById('absenceModal').classList.remove('hidden');
+}
+function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
+
+async function submitAbsence() {
+  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
+  try {
+    const agentId = document.getElementById('absenceAgent').value;
+    const absenceType = document.getElementById('absenceType').value;
+    const startDate = document.getElementById('absenceStart').value;
+    const endDate = document.getElementById('absenceEnd').value;
+    const reason = document.getElementById('absenceReason').value.trim();
+    
+    if (!agentId || !startDate || !endDate) throw new Error('Completa todos los campos obligatorios.');
+    if (endDate < startDate) throw new Error('La fecha fin no puede ser menor a la fecha inicio.');
+    
+    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
+    toast(`Ausencia registrada.`); closeAbsenceModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openPeopleModal() {
+  document.getElementById('peopleRole').value = 'supervisor';
+  document.getElementById('peopleName').value = '';
+  document.getElementById('peopleModal').classList.remove('hidden');
+}
+function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
+
+async function submitPerson() {
+  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
+  try {
+    const role = document.getElementById('peopleRole').value;
+    const name = document.getElementById('peopleName').value.trim();
+    if (!name) throw new Error('El nombre es obligatorio.');
+    
+    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
+    toast(`Persona registrada en el directorio.`); closePeopleModal(); await refreshFilters();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
 function downloadTemplate() { window.location.href = '/api/hc/template'; }
 function exportCsv() {
   const start = document.getElementById('rosterEffectiveStart').value;
@@ -890,7 +1008,7 @@ async function importFile(event) {
   if (!file) return;
   if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) { event.target.value = ''; return; }
   
-  const btnSpan = document.querySelector('.roster-head-btn.gold span');
+  const btnSpan = document.querySelector('.roster-head-btn.gold');
   const originalText = btnSpan.innerText;
   btnSpan.innerText = 'Cargando...';
 
