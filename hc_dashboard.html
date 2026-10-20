@@ -940,6 +940,15 @@ async function submitTermination() {
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
 
+async function reactivateAgent(agentId) {
+  if (!confirm(`¿Estás seguro de reactivar al agente ${agentId}?`)) return;
+  try {
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { actorMode: 'operaciones' });
+    toast('Agente reactivado.');
+    await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function openTransferModal(agentId) {
   await refreshFilters(); // Fuerza la actualización de las listas
 
@@ -963,4 +972,104 @@ async function submitTransfer() {
   const btn = document.getElementById('transferBtn'); btn.disabled = true;
   try {
     const id = document.getElementById('transferAgentId').value;
-    const toRole = document.getElementById('transferRole').value.trim
+    const toRole = document.getElementById('transferRole').value.trim() || 'Agente';
+    const toCampaign = document.getElementById('transferCampaign').value.trim();
+    const toChannel = document.getElementById('transferChannel').value;
+    const toSupervisor = document.getElementById('transferSupervisor').value.trim();
+    const toCoordinator = document.getElementById('transferCoordinator').value.trim();
+    const effectiveDate = document.getElementById('transferDate').value;
+    const reason = document.getElementById('transferReason').value.trim();
+
+    if (!toCampaign) throw new Error('La campaña destino es obligatoria.');
+    if (!effectiveDate) throw new Error('La fecha efectiva es obligatoria.');
+
+    const payload = {
+        toRole, toCampaign, toChannel, toSupervisor, toCoordinator,
+        effectiveDate, reason, actorMode: 'operaciones'
+    };
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, payload);
+    toast('Transferencia registrada.');
+    closeTransferModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openAbsenceModal() { document.getElementById('absenceModal').classList.remove('hidden'); }
+function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
+
+async function submitAbsence() {
+  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
+  try {
+    const agentId = document.getElementById('absenceAgent').value;
+    const absenceType = document.getElementById('absenceType').value;
+    const startDate = document.getElementById('absenceStart').value;
+    const endDate = document.getElementById('absenceEnd').value;
+    const reason = document.getElementById('absenceReason').value.trim();
+
+    if (!agentId) throw new Error('Selecciona un agente.');
+    if (!startDate || !endDate) throw new Error('Las fechas son obligatorias.');
+
+    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
+    toast('Ausencia registrada.');
+    closeAbsenceModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openPeopleModal() { document.getElementById('peopleModal').classList.remove('hidden'); }
+function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
+
+async function submitPerson() {
+  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
+  try {
+    const role = document.getElementById('peopleRole').value;
+    const name = document.getElementById('peopleName').value.trim();
+    if (!name) throw new Error('El nombre es obligatorio.');
+
+    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
+    toast('Persona registrada.');
+    closePeopleModal(); await refreshFilters();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function downloadTemplate() { window.location.href = '/api/hc/template'; }
+
+function exportCsv() {
+  const params = new URLSearchParams();
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  if (start) params.set('startDate', start);
+  if (end) params.set('endDate', end);
+  window.location.href = '/api/hc/export?' + params.toString();
+}
+
+async function importFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('actorMode', 'operaciones');
+  try {
+    const r = await fetch('/api/hc/import', { method: 'POST', body: formData });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al importar');
+    toast(`Importados: ${data.imported} registros.`);
+    if (data.errors && data.errors.length) {
+      console.warn('Errores de importación:', data.errors);
+      toast(`Hubo ${data.errors.length} errores. Revisa la consola.`, 'error');
+    }
+    await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+  event.target.value = ''; // reset
+}
+
+// Inicializar la carga de datos cuando la página esté lista
+document.addEventListener('DOMContentLoaded', () => {
+    refreshAll();
+});
+</script>
+</body>
+</html>
