@@ -32,7 +32,7 @@
     .roster-toolbar-btn { min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #CAD7E1; background: #F9FBFC; color: #3D5A70; font-size: 9px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 
     .roster-content { padding: 0 14px 14px; flex: 1; display: flex; flex-direction: column; }
-    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; }
+    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; max-height: 500px; }
     .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10px; min-width: 1200px; }
     .roster-table th { position: sticky; top: 0; z-index: 3; padding: 9px 8px; background: #EAF0F5; color: #61768A; font-size: 8px; text-transform: uppercase; letter-spacing: .07em; text-align: left; border-bottom: 1px solid #D5DFE7; white-space: nowrap; }
     .roster-table td { padding: 8px; color: #3F586E; border-bottom: 1px solid #EEF2F5; white-space: nowrap; vertical-align: middle; }
@@ -51,6 +51,23 @@
 
     .download-block { margin: 0 14px 12px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; color: #334155; }
     .download-block input[type="date"] { min-height: 32px; padding: 0 8px; font-size: 11px; }
+
+    /* Cronograma */
+    .schedule-section { margin-top: 14px; padding: 12px; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; }
+    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .schedule-title { font-size: 12px; font-weight: 800; color: #24465C; }
+    .schedule-tabs { display: flex; gap: 4px; }
+    .schedule-tab { padding: 6px 10px; border-radius: 8px; border: 1px solid #D4DFE7; background: #F8FAFC; color: #667C90; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .schedule-tab.active { border-color: #BFD5D0; background: #EAF6F3; color: #2C746B; }
+    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+    .schedule-metric { padding: 10px; border-radius: 10px; border: 1px solid #E0E7ED; background: #F8FAFB; }
+    .schedule-metric-label { font-size: 8px; font-weight: 800; color: #8998A6; text-transform: uppercase; }
+    .schedule-metric-value { margin-top: 4px; font-size: 14px; font-weight: 800; color: #2D4A60; font-family: 'JetBrains Mono', monospace; }
+    .schedule-chart-container { display: flex; align-items: flex-end; height: 160px; gap: 2px; padding: 16px 10px 24px; border-radius: 10px; border: 1px solid #E2E8ED; background: linear-gradient(to top, rgba(200,215,230,.1) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
+    .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+    .chart-bar { width: 100%; max-width: 18px; background: #317873; border-radius: 4px 4px 0 0; transition: height 0.3s ease; min-height: 2px; }
+    .chart-bar-label { position: absolute; bottom: -20px; font-size: 7px; font-family: 'JetBrains Mono', monospace; color: #8A99A7; }
+    .chart-bar-value { position: absolute; font-size: 7px; font-weight: 800; color: #3D596E; margin-bottom: 2px; }
 
     .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20,40,56,.42); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
@@ -78,6 +95,7 @@
     @media (max-width: 1050px) {
         .roster-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .roster-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .schedule-metrics { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 640px) {
         body { padding: 6px; }
@@ -161,6 +179,26 @@
                     <tr><td colspan="16" style="text-align:center;padding:30px;color:#7D8FA1">Cargando roster operativo…</td></tr>
                 </tbody>
             </table>
+        </div>
+
+        <!-- NUEVO CRONOGRAMA -->
+        <div class="schedule-section">
+            <div class="schedule-header">
+                <div>
+                    <div class="schedule-title">Distribución de horarios por franja</div>
+                    <div style="font-size:9px; color:#7B8D9E; margin-top:4px;">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior.</div>
+                </div>
+                <div class="schedule-tabs" id="scheduleTabs"></div>
+            </div>
+            <div class="schedule-metrics">
+                <div class="schedule-metric"><div class="schedule-metric-label">Agentes que cubren</div><div class="schedule-metric-value" id="chartKpiAgents">0</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Pico simultáneo</div><div class="schedule-metric-value" id="chartKpiPeak">0 HC</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura desde</div><div class="schedule-metric-value" id="chartKpiStart">—</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura hasta</div><div class="schedule-metric-value" id="chartKpiEnd">—</div></div>
+            </div>
+            <div class="schedule-chart-container" id="scheduleChart">
+                <!-- Las barras se inyectan con JS -->
+            </div>
         </div>
     </div>
 </div>
@@ -264,7 +302,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], debounceTimer: null, editingAgent: null };
+const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], debounceTimer: null, editingAgent: null, chartDay: 'Lunes' };
 
 const api = {
   async get(url) {
@@ -351,6 +389,7 @@ async function loadAgents() {
     const data = await api.get('/api/hc/agents?' + params.toString());
     state.agents = data.agents || [];
     renderAgents();
+    renderTimelineChart(); // Actualizamos la gráfica al mismo tiempo
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -365,7 +404,6 @@ function renderAgents() {
     const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
     let statusBadge = isBaja ? '<span class="roster-status inactive">Baja</span>' : '<span class="roster-status active">Activo</span>';
 
-    // Aquí asumimos que el backend ya filtra por status. Si el status es vacación o incapacidad, lo mostramos visualmente si el filtro está activo.
     const selectedStatus = document.getElementById('filterStatus').value;
     if (selectedStatus === 'Vacación') statusBadge = '<span class="roster-status vacation">Vacación</span>';
     if (selectedStatus === 'Incapacidad') statusBadge = '<span class="roster-status incapacity">Incapacidad</span>';
@@ -399,6 +437,126 @@ function renderAgents() {
       </tr>`;
   }).join('');
 }
+
+/* =======================================================
+   LÓGICA DEL CRONOGRAMA (GRÁFICA DE BARRAS)
+   ======================================================= */
+function parseTime(t) {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
+function getScheduleCoverage(agent, dayIndex) {
+    // dayIndex: 0=Lunes, 6=Domingo
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const prevDayIndex = (dayIndex + 6) % 7;
+    
+    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
+    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
+    
+    let coverage = new Array(48).fill(0); // 48 intervalos de 30 mins
+    
+    // Función para marcar intervalos
+    const mark = (start, end, isPrevDay) => {
+        let offset = isPrevDay ? 1440 : 0; // Si es día anterior, sumamos 24h
+        for (let i = 0; i < 48; i++) {
+            let slotStart = i * 30;
+            let slotEnd = slotStart + 30;
+            
+            // Si el turno cruza medianoche, el final es mayor a 1440
+            let shiftStart = start + offset;
+            let shiftEnd = end + offset;
+            if (shiftEnd <= shiftStart) shiftEnd += 1440; // Turno nocturno
+            
+            // Comprobar si el slot actual cae dentro del turno
+            if (Math.max(slotStart, shiftStart) < Math.min(slotEnd, shiftEnd)) {
+                coverage[i] = 1; // Marcamos que este agente cubre este slot
+            }
+        }
+    };
+
+    if (currentStr !== 'DD-DD') {
+        const [s, e] = currentStr.split('-');
+        mark(parseTime(s), parseTime(e), false);
+    }
+    
+    if (prevStr !== 'DD-DD') {
+        const [s, e] = prevStr.split('-');
+        let sMin = parseTime(s);
+        let eMin = parseTime(e);
+        if (eMin <= sMin) eMin += 1440; // Es nocturno
+        
+        // Si el turno del día anterior termina después de las 24:00, arrastra cobertura a hoy
+        if (eMin > 1440) {
+            mark(sMin, eMin, true);
+        }
+    }
+    
+    return coverage;
+}
+
+function renderTimelineChart() {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const tabsContainer = document.getElementById('scheduleTabs');
+    const chartContainer = document.getElementById('scheduleChart');
+    
+    // Renderizar pestañas de días
+    tabsContainer.innerHTML = days.map(d => `
+        <button class="schedule-tab ${state.chartDay === d ? 'active' : ''}" onclick="changeChartDay('${d}')">${d.slice(0,3)}</button>
+    `).join('');
+
+    const dayIndex = days.indexOf(state.chartDay);
+    const activeAgents = state.agents.filter(a => a.status === 'Activo');
+    
+    let totalCoverage = new Array(48).fill(0);
+    let agentsCovering = 0;
+
+    activeAgents.forEach(agent => {
+        const cov = getScheduleCoverage(agent, dayIndex);
+        let hasShift = false;
+        cov.forEach((val, i) => {
+            if (val) { totalCoverage[i]++; hasShift = true; }
+        });
+        if (hasShift) agentsCovering++;
+    });
+
+    const peak = Math.max(...totalCoverage);
+    let firstShift = totalCoverage.findIndex(v => v > 0);
+    let lastShift = -1;
+    for (let i = 47; i >= 0; i--) { if (totalCoverage[i] > 0) { lastShift = i; break; } }
+    
+    const formatTime = (slotIdx) => {
+        const h = Math.floor((slotIdx * 30) / 60);
+        const m = (slotIdx * 30) % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    };
+
+    document.getElementById('chartKpiAgents').textContent = agentsCovering;
+    document.getElementById('chartKpiPeak').textContent = `${peak} HC`;
+    document.getElementById('chartKpiStart').textContent = firstShift >= 0 ? formatTime(firstShift) : '—';
+    document.getElementById('chartKpiEnd').textContent = lastShift >= 0 ? formatTime(lastShift + 1) : '—';
+
+    // Renderizar barras
+    chartContainer.innerHTML = totalCoverage.map((count, i) => {
+        const heightPercent = peak > 0 ? (count / peak) * 100 : 0;
+        const showLabel = i % 4 === 0; // Etiqueta cada 2 horas (4 intervalos de 30m)
+        return `
+            <div class="chart-bar-wrap" title="${formatTime(i)} - ${formatTime(i+1)}: ${count} agentes">
+                ${count > 0 ? `<span class="chart-bar-value">${count}</span>` : ''}
+                <div class="chart-bar" style="height: ${Math.max(2, heightPercent)}%; opacity: ${count === 0 ? '0.1' : '1'}"></div>
+                ${showLabel ? `<span class="chart-bar-label">${formatTime(i)}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function changeChartDay(day) {
+    state.chartDay = day;
+    renderTimelineChart();
+}
+
+/* ======================================================= */
 
 function escape(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
@@ -537,7 +695,6 @@ async function importFile(event) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Inicializar fechas por defecto del descargador (primer día del mes al día de hoy)
   const today = new Date();
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
   document.getElementById('rosterEffectiveStart').value = firstDay.toISOString().slice(0, 10);
