@@ -267,15 +267,19 @@ def _ensure_people_catalog(conn, supervisor, coordinator):
 def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
     new_id = str((payload or {}).get('agentId') or '').strip()
     if not new_id: raise ValueError('El ID del agente es obligatorio.')
+    
+    role = str(payload.get('role') or 'Agente').strip()[:120]
+    is_admin = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
+    
     campaign = str((payload or {}).get('campaign') or '').strip()
-    if not campaign: raise ValueError('La campaña es obligatoria.')
+    if not campaign and not is_admin: raise ValueError('La campaña es obligatoria.')
+    if not campaign and is_admin: campaign = 'Administrativo'
 
     before = _fetch_agent(conn, old_id)
     if before is None and not allow_create: raise ValueError('No se encontró el agente.')
 
     supervisor = str(payload.get('supervisor') or '').strip()[:120]
     coordinator = str(payload.get('coordinator') or '').strip()[:120]
-    role = str(payload.get('role') or 'Agente').strip()[:120]
     is_new_hire = 1 if payload.get('isNewHire') else 0
     _ensure_people_catalog(conn, supervisor, coordinator)
 
@@ -301,7 +305,6 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     validity = payload.get('validity') or {}
     is_temp = validity.get('type') == 'temporary'
     
-    # Estos 18 valores corresponden exactamente a las columnas desde full_name hasta domingo
     values = (
         str(payload.get('fullName') or '').strip()[:120], role, is_new_hire, supervisor,
         coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
@@ -311,20 +314,17 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     )
 
     if before is None:
-        # INSERT: 1 (new_id) + 18 (values) + 3 (now, now, actor) = 22 parámetros
         conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values + (now, now, actor))
         _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[5], 'channel': values[6], 'supervisor': values[3], 'coordinator': values[4], 'hireDate': hire_date, 'isNewHire': bool(is_new_hire)}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
     else:
         if is_temp:
-            # Si es temporal, conservamos los horarios base anteriores y solo actualizamos datos del perfil
             update_values = values[:11] + (
                 before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
                 before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
-            ) # 11 + 7 = 18 parámetros
+            )
         else:
-            update_values = values # 18 parámetros
+            update_values = values
             
-        # UPDATE: 1 (new_id) + 18 (update_values) + 2 (now, actor) + 1 (old_id) = 22 parámetros
         conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (now, actor, old_id))
         
         if is_temp:
@@ -549,7 +549,13 @@ def hc_transfer_agent(agent_id):
         effective = _validate_date(payload.get('effectiveDate'), 'fecha efectiva')
         reason = str(payload.get('reason') or '')[:500]
 
-        if not to_campaign: raise ValueError('La campaña destino es obligatoria.')
+        is_admin = any(term in to_role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
+        
+        if not to_campaign and not is_admin: 
+            raise ValueError('La campaña destino es obligatoria.')
+        
+        if is_admin and not to_campaign:
+            to_campaign = 'Administrativo'
 
         with HC_LOCK:
             conn = _conn()
@@ -655,13 +661,11 @@ def hc_list_people():
         rows = [dict(r) for r in conn.execute("SELECT role, name FROM hc_people_catalog").fetchall()]
         seen = {(r['role'], r['name']) for r in rows}
         
-        # Agregar supervisores de la tabla de agentes
         for r in conn.execute("SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> ''"):
             if ('supervisor', r[0]) not in seen:
                 rows.append({'role': 'supervisor', 'name': r[0]})
                 seen.add(('supervisor', r[0]))
                 
-        # Agregar coordinadores de la tabla de agentes
         for r in conn.execute("SELECT DISTINCT coordinator FROM hc_agents WHERE coordinator <> ''"):
             if ('coordinator', r[0]) not in seen:
                 rows.append({'role': 'coordinator', 'name': r[0]})
@@ -971,150 +975,4 @@ def hc_import():
                 try:
                     def get(*keys):
                         for k in keys:
-                            nk = _normalize_col(k)
-                            if nk in row and row[nk] is not None and str(row[nk]).strip().lower() not in ('', 'nan', 'none'): 
-                                return str(row[nk]).strip()
-                        return ''
-                    
-                    agent_id = get('ID Agente', 'agent_id', 'id')
-                    campaign = get('Campaña', 'campana')
-                    supervisor = get('Supervisor')
-                    coordinator = get('Coordinador')
-                    role = get('Puesto', 'Rol', 'role') or 'Agente'
-                    nh_raw = get('New Hire', 'Nuevo Ingreso').lower()
-                    is_new_hire = 1 if nh_raw in ('si', 'sí', '1', 'true', 'yes') else 0
-                    
-                    if not agent_id or not campaign:
-                        raise ValueError('ID y Campaña son obligatorios.')
-                        
-                    _ensure_people_catalog(conn, supervisor, coordinator)
-                        
-                    hire_date_raw = get('Fecha Ingreso')
-                    hire_date = None
-                    if hire_date_raw:
-                        try:
-                            hire_date = _validate_date(hire_date_raw, 'fecha ingreso')
-                        except ValueError:
-                            pass 
-                            
-                    schedules = {}
-                    for d in ROSTER_DAYS:
-                        val = get(d)
-                        try:
-                            schedules[d] = _validate_schedule(val)
-                        except ValueError:
-                            schedules[d] = 'DD-DD'
-
-                    raw_status = get('Estado').lower()
-                    is_baja = raw_status in ('baja', 'inactivo')
-                    status = 'Baja' if is_baja else 'Activo'
-                    term_date = _today() if is_baja else None
-
-                    now = _now()
-                    
-                    conn.execute("""
-                        INSERT INTO hc_agents (
-                            agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, 
-                            hire_date, email, employee_number, notes, 
-                            lunes, martes, miercoles, jueves, viernes, sabado, domingo, 
-                            status, termination_date, created_at, updated_at, updated_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(agent_id) DO UPDATE SET
-                            full_name=excluded.full_name,
-                            role=excluded.role,
-                            is_new_hire=excluded.is_new_hire,
-                            supervisor=excluded.supervisor,
-                            coordinator=excluded.coordinator,
-                            campaign=excluded.campaign,
-                            channel=excluded.channel,
-                            hire_date=excluded.hire_date,
-                            email=excluded.email,
-                            employee_number=excluded.employee_number,
-                            notes=excluded.notes,
-                            lunes=excluded.lunes,
-                            martes=excluded.martes,
-                            miercoles=excluded.miercoles,
-                            jueves=excluded.jueves,
-                            viernes=excluded.viernes,
-                            sabado=excluded.sabado,
-                            domingo=excluded.domingo,
-                            status=excluded.status,
-                            termination_date=excluded.termination_date,
-                            updated_at=excluded.updated_at,
-                            updated_by=excluded.updated_by
-                    """, (
-                        agent_id, get('Nombre Completo', 'nombre'), role, is_new_hire, supervisor, coordinator,
-                        campaign, _normalize_channel(get('Canal')),
-                        hire_date, get('Email'), get('Número Empleado'), get('Notas'),
-                        schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
-                        schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
-                        status, term_date,
-                        now, now, actor
-                    ))
-
-                    if is_baja:
-                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (agent_id,))
-                        conn.execute("""
-                            INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by)
-                            VALUES (?, ?, 'Importación CSV', 1, ?, ?)
-                        """, (agent_id, term_date, now, actor))
-
-                    imported += 1
-                except Exception as e:
-                    errors.append({'row': idx + 2, 'error': str(e)})
-                    if len(errors) >= 20: 
-                        break 
-            
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            return jsonify({'error': f'Error de base de datos: {str(e)}'}), 500
-        finally: 
-            conn.close()
-            
-    return jsonify({'ok': True, 'imported': imported, 'errors': errors}), 200
-
-@hc_bp.route('/api/hc/agents/bulk-terminate', methods=['POST'])
-def hc_bulk_terminate():
-    _init_db()
-    try:
-        payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.get('actorMode', 'operaciones'))[:80]
-        ids = payload.get('agentIds') or []
-        date = _validate_date(payload.get('terminationDate'), 'fecha de baja')
-        reason = str(payload.get('reason') or 'Baja masiva')[:500]
-        rehireable = 1 if payload.get('rehireable', True) else 0
-        results = []
-        with HC_LOCK:
-            conn = _conn()
-            try:
-                for aid in ids:
-                    try:
-                        aid = str(aid).strip()
-                        before = _fetch_agent(conn, aid)
-                        if not before: results.append({'agentId': aid, 'status': 'skipped', 'reason': 'No encontrado'}); continue
-                        if before.get('terminationDate'): results.append({'agentId': aid, 'status': 'skipped', 'reason': 'Ya tiene baja'}); continue
-                        new_status = 'Baja' if date <= _today() else 'Activo'
-                        conn.execute("UPDATE hc_agents SET status=?, termination_date=?, termination_reason=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_status, date, reason, _now(), actor, aid))
-                        conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (aid,))
-                        conn.execute("INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)", (aid, date, reason, rehireable, _now(), actor))
-                        _log_history(conn, aid, 'agent_terminated', before, {'terminationDate': date, 'reason': reason}, reason, date, actor)
-                        results.append({'agentId': aid, 'status': 'ok'})
-                    except Exception as e: results.append({'agentId': aid, 'status': 'error', 'reason': str(e)})
-                conn.commit()
-            except Exception: conn.rollback(); raise
-            finally: conn.close()
-        return jsonify({'ok': True, 'processed': len(results), 'succeeded': sum(1 for r in results if r['status'] == 'ok'), 'results': results}), 200
-    except ValueError as e: return jsonify({'error': str(e)}), 400
-    except Exception as e: return jsonify({'error': f'Error en baja masiva: {e}'}), 500
-
-def create_hc_app():
-    app = Flask(__name__, static_folder=None)
-    app.register_blueprint(hc_bp)
-    return app
-
-if __name__ == '__main__':
-    _init_db()
-    app = create_hc_app()
-    port = int(os.environ.get('HC_PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
+                            nk = _normalize
