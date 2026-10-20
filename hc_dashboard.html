@@ -81,7 +81,7 @@
     .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
     .roster-status.new-hire { background: #F3E8FF; color: #6B21A8; }
     
-    .roster-edit-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #CBD5E1; color: var(--navy); background: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .roster-edit-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #CBD5E1; color: var(--navy); background: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; margin-right: 4px; }
     .roster-edit-btn:hover { background: var(--navy-light); border-color: var(--navy); }
 
     .download-block { margin: 0 24px 20px; padding: 16px; border-radius: 12px; background: var(--navy); color: #FFF; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
@@ -110,6 +110,7 @@
     .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15,23,42,.6); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
     .modal { width: 100%; max-width: 650px; max-height: calc(100vh - 40px); background: #F8FAFC; border-radius: 16px; border: 1px solid #E2E8F0; box-shadow: 0 28px 60px -30px rgba(10,51,91,.5); overflow: hidden; display: flex; flex-direction: column; }
+    .modal-lg { max-width: 900px; }
     .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 20px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E8F0; }
     .modal-title { font-size: 20px; font-weight: 800; color: #0F172A; margin: 0; }
     .modal-sub { font-size: 12px; color: #64748B; margin: 4px 0 0; }
@@ -187,6 +188,7 @@
             </span>
             <button class="roster-head-btn secondary" onclick="downloadTemplate()">Plantilla</button>
             <button class="roster-head-btn secondary" onclick="exportBaseCsv()">Exportar</button>
+            <button class="roster-head-btn secondary" onclick="openHistoryModal()">Bitácora Global</button>
             <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
             <button class="roster-head-btn secondary" onclick="openAbsenceModal()">+ Incapacidad/Vacaciones</button>
             <button class="roster-head-btn secondary" onclick="openPeopleModal()">+ Directorio</button>
@@ -510,6 +512,36 @@
   </div>
 </div>
 
+<!-- Modal: Bitácora (Historial) -->
+<div id="historyModal" class="modal-backdrop hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3 class="modal-title" id="historyTitle">Bitácora de cambios</h3><p class="modal-sub" id="historySub">Registro de auditoría</p></div>
+      <button class="modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="historyLoading" style="text-align:center; padding: 20px; color: #64748B; font-weight: bold;">Cargando bitácora...</div>
+      <div class="roster-agents-scroll" id="historyContent" style="max-height: 500px; display: none;">
+        <table class="roster-table">
+          <thead>
+            <tr>
+              <th>Fecha / Hora</th>
+              <th>Agente</th>
+              <th>Tipo de Cambio</th>
+              <th>Detalles</th>
+              <th>Usuario</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeHistoryModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -680,6 +712,7 @@ function renderAgents() {
         <td>${statusBadge}${nhBadge}</td>
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
+          <button class="roster-edit-btn" onclick="openHistoryModal('${escapeAttr(a.agentId)}')">Historial</button>
           ${a.terminationDate || a.status === 'Baja'
               ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
               : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
@@ -756,7 +789,6 @@ function renderTimelineChart() {
     `).join('');
 
     const dayIndex = days.indexOf(state.chartDay);
-    // MEJORA: Solo contar a los que su rol sea 'Agente' para la cobertura operativa
     const activeAgents = state.agents.filter(a => a.status === 'Activo' && a.role === 'Agente');
 
     let totalCoverage = new Array(48).fill(0);
@@ -1091,7 +1123,6 @@ async function submitPerson() {
 
 function downloadTemplate() { window.location.href = '/api/hc/template'; }
 
-// NUEVA LÓGICA: Exportar base con filtros aplicados
 async function exportBaseCsv() {
   const params = new URLSearchParams();
   params.set('mode', 'base');
@@ -1121,7 +1152,6 @@ async function exportBaseCsv() {
   }
 }
 
-// NUEVA LÓGICA: Exportar histórico con filtros aplicados
 async function exportHistoricalCsv() {
   const start = document.getElementById('rosterEffectiveStart').value;
   const end = document.getElementById('rosterEffectiveEnd').value;
@@ -1181,6 +1211,96 @@ async function importFile(event) {
   } catch (e) { toast(e.message, 'error'); }
   event.target.value = ''; // reset
 }
+
+// NUEVA LÓGICA: Modal de Bitácora
+async function openHistoryModal(agentId = null) {
+  document.getElementById('historyModal').classList.remove('hidden');
+  document.getElementById('historyLoading').style.display = 'block';
+  document.getElementById('historyContent').style.display = 'none';
+  document.getElementById('historyTableBody').innerHTML = '';
+
+  if (agentId) {
+    const a = state.agents.find(x => x.agentId === agentId);
+    document.getElementById('historyTitle').textContent = `Historial del Agente`;
+    document.getElementById('historySub').textContent = `${a.agentId} · ${a.fullName || ''}`;
+  } else {
+    document.getElementById('historyTitle').textContent = `Bitácora Global`;
+    document.getElementById('historySub').textContent = `Últimos cambios registrados en el sistema`;
+  }
+
+  try {
+    const url = agentId ? `/api/hc/agents/${encodeURIComponent(agentId)}/history` : '/api/hc/history?limit=200';
+    const data = await api.get(url);
+    const history = data.history || [];
+
+    if (!history.length) {
+      document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#64748B;">No hay registros de cambios.</td></tr>';
+    } else {
+      document.getElementById('historyTableBody').innerHTML = history.map(h => {
+        
+        // Traducir tipos de cambio
+        let typeLabel = h.changeType;
+        if (h.changeType === 'agent_created') typeLabel = 'Alta de Agente';
+        if (h.changeType === 'agent_updated') typeLabel = 'Actualización de Datos';
+        if (h.changeType === 'agent_terminated') typeLabel = 'Baja';
+        if (h.changeType === 'agent_reactivated') typeLabel = 'Reactivación';
+        if (h.changeType === 'agent_transferred') typeLabel = 'Transferencia / Cambio';
+        if (h.changeType === 'temporary_schedule_applied') typeLabel = 'Horario Temporal';
+        if (h.changeType === 'vacation_created') typeLabel = 'Registro de Vacaciones';
+        if (h.changeType === 'incapacity_created') typeLabel = 'Registro de Incapacidad';
+
+        // Formatear fecha
+        let dt = new Date(h.changedAt);
+        let dateStr = dt.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
+        let timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+        // Detalles
+        let details = '';
+        if (h.before && h.after) {
+           let changes = [];
+           if (h.before.campaign !== h.after.campaign) changes.push(`Campaña: ${h.before.campaign || '—'} ➔ ${h.after.campaign || '—'}`);
+           if (h.before.supervisor !== h.after.supervisor) changes.push(`Supervisor: ${h.before.supervisor || '—'} ➔ ${h.after.supervisor || '—'}`);
+           if (h.before.coordinator !== h.after.coordinator) changes.push(`Coordinador: ${h.before.coordinator || '—'} ➔ ${h.after.coordinator || '—'}`);
+           if (h.before.role !== h.after.role) changes.push(`Puesto: ${h.before.role || '—'} ➔ ${h.after.role || '—'}`);
+           if (h.before.status !== h.after.status) changes.push(`Estado: ${h.before.status || '—'} ➔ ${h.after.status || '—'}`);
+           
+           if (h.changeType === 'temporary_schedule_applied') {
+               changes.push(`Horario temporal del ${h.after.startDate} al ${h.after.endDate}`);
+           }
+           details = changes.length ? changes.join('<br>') : 'Se actualizaron campos generales';
+        } else if (h.changeType === 'agent_created') {
+           details = `Nuevo registro en la campaña ${h.after.campaign || '—'}`;
+        } else if (h.changeType === 'agent_terminated') {
+           details = `Motivo: ${h.reason || 'No especificado'}`;
+        } else if (h.changeType === 'vacation_created' || h.changeType === 'incapacity_created') {
+           details = `Del ${h.after.startDate} al ${h.after.endDate}`;
+        } else if (h.reason) {
+           details = h.reason;
+        } else {
+           details = '—';
+        }
+
+        return `
+          <tr>
+            <td><div style="font-size:10px; color:#64748B;">${dateStr}</div><div style="font-family:monospace; font-weight:800; color:#0A335B;">${timeStr}</div></td>
+            <td><span class="roster-agent-id">${h.agentId}</span></td>
+            <td><span style="font-weight:700; color:#334155;">${typeLabel}</span></td>
+            <td><div style="font-size:11px; line-height:1.4;">${details}</div></td>
+            <td>${h.changedBy || 'operaciones'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    document.getElementById('historyLoading').style.display = 'none';
+    document.getElementById('historyContent').style.display = 'block';
+  } catch (e) {
+    document.getElementById('historyLoading').textContent = 'Error al cargar la bitácora: ' + e.message;
+    document.getElementById('historyLoading').style.color = '#991B1B';
+  }
+}
+
+function closeHistoryModal() { document.getElementById('historyModal').classList.add('hidden'); }
 
 // Inicializar la carga de datos cuando la página esté lista
 document.addEventListener('DOMContentLoaded', () => {
