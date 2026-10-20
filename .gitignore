@@ -1,7 +1,0 @@
-hc_manager.db
-hc_manager.db-wal
-hc_manager.db-shm
-__pycache__/
-*.pyc
-.env
-.venv/
