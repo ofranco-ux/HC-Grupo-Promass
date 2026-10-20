@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<title>Tablero de HC · Operaciones</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #EEF2F6;
+  --bg-soft: #E7EDF3;
+  --surface: #F4F7FB;
+  --surface-2: #EDF2F6;
+  --border: #CED9E4;
+  --border-soft: #DDE5EE;
+  --navy-1: #132A43;
+  --navy-2: #173754;
+  --navy-3: #1D4664;
+  --primary: #5B8CFF;
+  --primary-soft: #EAF0FB;
+  --success: #2D9489;
+  --success-soft: #E6F4F1;
+  --warning: #B77816;
+  --warning-soft: #F4E9CE;
+  --danger: #C95870;
+  --danger-soft: #F5E3E8;
+  --text: #172033;
+  --text-soft: #41536A;
+  --text-muted: #75879B;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: radial-gradient(circle at 85% -10%, rgba(91,140,255,.08), transparent 32rem),
+              linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+.font-mono { font-family: 'JetBrains Mono', monospace; }
+
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 16px 24px; margin: 16px 20px 0;
+  border-radius: 18px; color: #fff;
+  background: linear-gradient(135deg, var(--navy-1) 0%, var(--navy-2) 58%, var(--navy-3) 100%);
+  border: 1px solid #244B6A;
+  box-shadow: 0 20px 42px -30px rgba(13,35,56,.55);
+}
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-mark {
+  display: flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 12px;
+  background: linear-gradient(145deg, rgba(95,122,224,.22), rgba(61,171,161,.13));
+  border: 1px solid rgba(176,196,224,.22);
+  color: #9DE5D8;
+}
+.brand-mark svg { width: 22px; height: 22px; }
+.brand-eyebrow {
+  font-size: 9px; letter-spacing: .17em; text-transform: uppercase;
+  color: #A8BCD1; font-weight: 800; margin: 0 0 2px;
+}
+.brand-title { font-size: 17px; font-weight: 800; letter-spacing: -.025em; margin: 0; }
+.brand-sub { font-size: 10px; color: #C0D0DE; margin: 3px 0 0; }
+.header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  min-height: 34px; padding: 0 12px; border-radius: 10px;
+  font-size: 10px; font-weight: 800; cursor: pointer;
+  border: 1px solid transparent; transition: .18s ease;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-ghost {
+  border-color: rgba(207,221,235,.16);
+  background: rgba(255,255,255,.06);
+  color: #D8E3ED;
+}
+.btn-ghost:hover { background: rgba(255,255,255,.12); color: #fff; }
+.btn-primary {
+  background: linear-gradient(135deg, #5B8CFF, #4A6FE0);
+  color: #fff; border-color: #5B8CFF;
+  box-shadow: 0 8px 20px -13px rgba(91,140,255,.6);
+}
+.btn-primary:hover { filter: brightness(1.05); transform: translateY(-1px); }
+
+main { padding: 20px; max-width: 1600px; margin: 0 auto; }
+
+.kpi-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+.kpi {
+  padding: 16px 18px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 16px 40px -34px rgba(31,49,71,.22), inset 0 1px 0 rgba(255,255,255,.7);
+  position: relative; overflow: hidden;
+}
+.kpi::before {
+  content: ''; position: absolute; left: 0; top: 16px; bottom: 16px;
+  width: 3px; border-radius: 99px; background: var(--primary);
+}
+.kpi.kpi-success::before { background: var(--success); }
+.kpi.kpi-warning::before { background: var(--warning); }
+.kpi.kpi-danger::before { background: var(--danger); }
+.kpi-label {
+  font-size: 10px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted); margin: 0;
+}
+.kpi-value {
+  font-size: 32px; font-weight: 800; letter-spacing: -.04em;
+  line-height: 1; margin: 10px 0 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+.kpi-hint { font-size: 10px; color: var(--text-muted); margin: 8px 0 0; line-height: 1.4; }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; overflow: hidden;
+  box-shadow: 0 16px 44px -38px rgba(31,49,71,.22), inset 0 1px 0 rgba(255,255,255,.72);
+  margin-bottom: 14px;
+}
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border-soft);
+  flex-wrap: wrap;
+}
+.panel-title { font-size: 13px; font-weight: 800; margin: 0; color: var(--text); }
+.panel-sub { font-size: 10px; color: var(--text-muted); margin: 3px 0 0; }
+.panel-body { padding: 14px 18px; }
+
+.campaign-strip {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+.campaign-chip {
+  padding: 10px 12px; border-radius: 11px;
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+}
+.campaign-chip-name {
+  font-size: 9px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.campaign-chip-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px; font-weight: 800; color: var(--text);
+  margin-top: 4px;
+  display: flex; align-items: baseline; gap: 5px;
+}
+.campaign-chip-channel {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 9px; font-weight: 700; color: var(--text-muted);
+}
+
+.filters {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) auto;
+  align-items: end;
+}
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label {
+  font-size: 9px; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.input {
+  width: 100%; min-height: 36px; padding: 7px 10px;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: #fff; color: var(--text-soft);
+  font-size: 11px; font-family: inherit; outline: none;
+  transition: .16s ease;
+}
+.input:focus { border-color: #859DD3; box-shadow: 0 0 0 3px rgba(95,122,224,.09); }
+.btn-reset {
+  min-height: 36px; padding: 0 12px;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: #fff; color: var(--text-soft);
+  font-size: 10px; font-weight: 800; cursor: pointer;
+}
+.btn-reset:hover { background: var(--surface-2); }
+
+.tabs {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--surface-2);
+  border-radius: 10px; border: 1px solid var(--border-soft);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.tab {
+  flex: 0 0 auto; min-height: 30px; padding: 0 12px;
+  border-radius: 8px; font-size: 10px; font-weight: 800;
+  color: var(--text-muted); cursor: pointer; border: 1px solid transparent;
+  background: transparent; transition: .16s ease;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.tab.is-active {
+  background: #fff; color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 7px 16px -14px rgba(25,52,73,.35);
+}
+.tab-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--primary-soft);
+  color: #3B5AA6; font-size: 8px; font-weight: 900;
+}
+
+.table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border-soft); }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; min-width: 1100px; }
+thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: #E1E8EF; color: #4F6176; font-size: 9px;
+  text-transform: uppercase; letter-spacing: .07em;
+  font-weight: 800; text-align: left; padding: 10px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody td { padding: 10px 10px; color: var(--text-soft); border-bottom: 1px solid #E8EDF3; vertical-align: middle; }
+tbody tr:hover td { background: #F7F9FC; }
+tbody tr.is-baja td { color: #98A2B0; }
+tbody tr.is-baja td.mono { text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: rgba(152,162,176,.5); }
+
+.agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--text); }
+.agent-name { font-weight: 700; color: var(--text); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 9px; font-weight: 900; letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.badge.badge-active { background: var(--success-soft); color: var(--success); }
+.badge.badge-baja { background: var(--danger-soft); color: var(--danger); }
+.badge.badge-pending { background: var(--warning-soft); color: var(--warning); }
+.badge.badge-channel {
+  background: #EEF2F9; color: #4E689E; text-transform: none;
+  letter-spacing: 0; font-size: 9px; padding: 2px 7px;
+}
+.schedule-chip {
+  display: inline-block; font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px; font-weight: 700; padding: 2px 6px;
+  border-radius: 6px; background: #EFF4F7; color: #526A7E;
+  white-space: nowrap;
+}
+.schedule-chip.is-off { background: #F4F5F7; color: #9AA6B1; }
+
+.row-actions { display: flex; gap: 4px; }
+.icon-btn {
+  min-height: 26px; padding: 0 8px;
+  border-radius: 7px; border: 1px solid var(--border);
+  background: #fff; color: var(--text-soft);
+  font-size: 9px; font-weight: 800; cursor: pointer;
+  transition: .14s ease;
+}
+.icon-btn:hover { background: var(--surface-2); border-color: #B7C7D7; }
+.icon-btn.danger { color: var(--danger); border-color: #E3CDD3; background: #FCF7F8; }
+.icon-btn.danger:hover { background: #F7ECEF; }
+.icon-btn.success { color: var(--success); border-color: #C9DED8; background: #F3FAF8; }
+.icon-btn.success:hover { background: #E8F5F1; }
+
+.empty {
+  padding: 40px 20px; text-align: center;
+  color: var(--text-muted); font-size: 11px;
+}
+
+.list-item {
+  padding: 12px 14px; border-radius: 11px;
+  background: var(--surface); border: 1px solid var(--border-soft);
+  margin-bottom: 8px;
+}
+.list-item-title { font-size: 11px; font-weight: 800; color: var(--text); margin: 0 0 3px; }
+.list-item-meta { font-size: 10px; color: var(--text-muted); margin: 0; }
+.list-item-detail { font-size: 11px; color: var(--text-soft); margin: 6px 0 0; line-height: 1.5; }
+.change-tag {
+  display: inline-flex; align-items: center;
+  padding: 2px 7px; border-radius: 5px;
+  font-size: 8px; font-weight: 900; text-transform: uppercase;
+  letter-spacing: .05em; margin-right: 6px;
+}
+.change-tag.created { background: var(--success-soft); color: var(--success); }
+.change-tag.updated { background: var(--primary-soft); color: #3B5AA6; }
+.change-tag.terminated { background: var(--danger-soft); color: var(--danger); }
+.change-tag.reactivated { background: var(--success-soft); color: var(--success); }
+.change-tag.transferred { background: var(--warning-soft); color: var(--warning); }
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(20,40,56,.42);
+  backdrop-filter: blur(4px);
+}
+.modal-backdrop.hidden { display: none; }
+.modal {
+  width: 100%; max-width: 560px; max-height: calc(100vh - 40px);
+  background: #F7FAFC; border-radius: 18px; border: 1px solid var(--border);
+  box-shadow: 0 28px 60px -30px rgba(20,42,62,.55);
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.modal-lg { max-width: 780px; }
+.modal-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--border-soft);
+}
+.modal-title { font-size: 14px; font-weight: 800; color: var(--text); margin: 0; }
+.modal-sub { font-size: 10px; color: var(--text-muted); margin: 3px 0 0; }
+.modal-close {
+  width: 30px; height: 30px; border-radius: 9px;
+  border: 1px solid var(--border); background: #fff;
+  color: var(--text-muted); cursor: pointer; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-body { padding: 16px 18px; overflow-y: auto; }
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--border-soft);
+  background: #F1F5F8;
+}
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid .field-full { grid-column: 1 / -1; }
+.form-section-title {
+  font-size: 9px; font-weight: 900; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--text-muted);
+  margin: 12px 0 8px; padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.btn-save {
+  min-height: 36px; padding: 0 16px;
+  border-radius: 10px; border: 1px solid transparent;
+  background: linear-gradient(135deg, #2F6B63, #256F64);
+  color: #fff; font-size: 10px; font-weight: 800;
+  cursor: pointer; transition: .16s ease;
+}
+.btn-save:hover { filter: brightness(1.05); transform: translateY(-1px); }
+.btn-save:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn-cancel {
+  min-height: 36px; padding: 0 16px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: #fff; color: var(--text-soft);
+  font-size: 10px; font-weight: 800; cursor: pointer;
+}
+
+.toast {
+  position: fixed; bottom: 20px; right: 20px; z-index: 200;
+  min-width: 240px; max-width: 400px;
+  padding: 11px 14px; border-radius: 11px;
+  color: #fff; font-size: 11px; font-weight: 700;
+  background: #225F58; border: 1px solid #347A72;
+  box-shadow: 0 16px 36px -22px rgba(24,49,68,.5);
+  opacity: 0; transform: translateY(10px);
+  transition: .22s ease; pointer-events: none;
+}
+.toast.is-visible { opacity: 1; transform: translateY(0); }
+.toast.is-error { background: #8A4052; border-color: #A95468; }
+
+.helper-inline {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #F1F5F8;
+  border: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1024px) {
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .btn-reset { grid-column: 1 / -1; }
+  .form-grid, .schedule-grid { grid-template-columns: 1fr; }
+  .app-header { flex-direction: column; align-items: stretch; }
+  .header-actions { justify-content: flex-end; }
+}
+@media (max-width: 640px) {
+  main { padding: 10px; }
+  .app-header { margin: 10px 10px 0; padding: 12px; }
+  .kpi-value { font-size: 26px; }
+  .brand-sub { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>
+        <circle cx="12" cy="12" r="4.2"/>
+      </svg>
+    </div>
+    <div>
+      <p class="brand-eyebrow">Operaciones · Workforce</p>
+      <h1 class="brand-title">Tablero de HC</h1>
+      <p class="brand-sub">Gestión de horarios, altas, bajas y transferencias</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" onclick="downloadTemplate()">⇩ Plantilla</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">⤒ Importar</button>
+    <input id="fileInput" type="file" accept=".csv,.xlsx" style="display:none" onchange="importFile(event)">
+    <button class="btn btn-ghost" onclick="exportCsv()">⇩ Exportar</button>
+    <button class="btn btn-primary" onclick="openAgentModal()">+ Nuevo agente</button>
+  </div>
+</header>
+
+<main>
+  <div class="kpi-grid">
+    <div class="kpi kpi-success">
+      <p class="kpi-label">HC activo</p>
+      <p class="kpi-value" id="kpiActive">—</p>
+      <p class="kpi-hint" id="kpiActiveHint">Colaboradores activos hoy</p>
+    </div>
+    <div class="kpi">
+      <p class="kpi-label">Altas del periodo</p>
+      <p class="kpi-value" id="kpiHires">—</p>
+      <p class="kpi-hint" id="kpiHiresHint">Nuevos ingresos</p>
+    </div>
+    <div class="kpi kpi-danger">
+      <p class="kpi-label">Bajas del periodo</p>
+      <p class="kpi-value" id="kpiTerminations">—</p>
+      <p class="kpi-hint" id="kpiTerminationsHint">Salidas registradas</p>
+    </div>
+    <div class="kpi kpi-warning">
+      <p class="kpi-label">Attrition</p>
+      <p class="kpi-value" id="kpiAttrition">—</p>
+      <p class="kpi-hint" id="kpiAttritionHint">Bajas ÷ HC inicial</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <h3 class="panel-title">Distribución de HC por campaña</h3>
+        <p class="panel-sub" id="campaignPanelSub">Colaboradores activos agrupados por campaña y canal.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label class="field" style="flex-direction:row;align-items:center;gap:6px">
+          <span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">Desde</span>
+          <input type="date" id="periodStart" class="input" style="width:140px;min-height:32px" onchange="refreshMetrics()">
+        </label>
+        <label class="field" style="flex-direction:row;align-items:center;gap:6px">
+          <span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">Hasta</span>
+          <input type="date" id="periodEnd" class="input" style="width:140px;min-height:32px" onchange="refreshMetrics()">
+        </label>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="campaignStrip" class="campaign-strip"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-body">
+      <div class="filters">
+        <div class="field"><label>Campaña</label><select id="filterCampaign" class="input" onchange="loadAgents()"><option value="">Todas</option></select></div>
+        <div class="field"><label>Canal</label><select id="filterChannel" class="input" onchange="loadAgents()"><option value="">Todos</option><option>Llamadas</option><option>Chat</option></select></div>
+        <div class="field"><label>Supervisor</label><select id="filterSupervisor" class="input" onchange="loadAgents()"><option value="">Todos</option></select></div>
+        <div class="field"><label>Estado</label><select id="filterStatus" class="input" onchange="loadAgents()"><option value="">Todos</option><option value="Activo">Activo</option><option value="Baja">Baja</option></select></div>
+        <div class="field"><label>Buscar</label><input id="filterSearch" class="input" placeholder="ID, nombre, email…" oninput="debouncedLoadAgents()"></div>
+        <button class="btn-reset" onclick="resetFilters()">Limpiar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab is-active" data-tab="agents" onclick="setTab('agents')">Colaboradores <span class="tab-count" id="tabCountAgents">0</span></button>
+    <button class="tab" data-tab="history" onclick="setTab('history')">Historial</button>
+    <button class="tab" data-tab="terminations" onclick="setTab('terminations')">Bajas</button>
+    <button class="tab" data-tab="transfers" onclick="setTab('transfers')">Transferencias</button>
+  </div>
+
+  <div class="panel">
+    <div id="view-agents">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Nombre</th><th>Supervisor</th><th>Coordinador</th>
+              <th>Campaña</th><th>Canal</th><th>Estado</th>
+              <th>Ingreso</th><th>Baja</th>
+              <th>Lun</th><th>Mar</th><th>Mié</th><th>Jue</th><th>Vie</th><th>Sáb</th><th>Dom</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="agentsBody"></tbody>
+        </table>
+      </div>
+      <div id="agentsEmpty" class="empty" style="display:none">
+        <p style="font-weight:800;color:var(--text);margin:0 0 4px">Sin colaboradores registrados</p>
+        <p style="margin:0">Importa una plantilla o usa <strong>+ Nuevo agente</strong> para empezar.</p>
+      </div>
+    </div>
+
+    <div id="view-history" class="panel-body" style="display:none">
+      <div id="historyList"></div>
+    </div>
+
+    <div id="view-terminations" class="panel-body" style="display:none">
+      <div id="terminationsList"></div>
+    </div>
+
+    <div id="view-transfers" class="panel-body" style="display:none">
+      <div id="transfersList"></div>
+    </div>
+  </div>
+</main>
+
+<div id="agentModal" class="modal-backdrop hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title" id="agentModalTitle">Nuevo agente</h3>
+        <p class="modal-sub">Los horarios se guardan con formato HH:MM-HH:MM o DD-DD (descanso).</p>
+      </div>
+      <button class="modal-close" onclick="closeAgentModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="agentForm" onsubmit="saveAgent(event)">
+        <input type="hidden" id="agentEditId">
+        <div class="form-section-title">Identificación</div>
+        <div class="form-grid">
+          <div class="field"><label>ID agente *</label><input id="fldAgentId" class="input" required maxlength="40" placeholder="A-00001"></div>
+          <div class="field"><label>Número empleado</label><input id="fldEmployeeNumber" class="input" maxlength="40"></div>
+          <div class="field field-full"><label>Nombre completo</label><input id="fldFullName" class="input" maxlength="120" placeholder="Nombre Apellido"></div>
+          <div class="field"><label>Supervisor</label><input id="fldSupervisor" class="input" list="supervisorList" maxlength="120"></div>
+          <div class="field"><label>Coordinador</label><input id="fldCoordinator" class="input" maxlength="120"></div>
+          <datalist id="supervisorList"></datalist>
+          <div class="field"><label>Email</label><input id="fldEmail" type="email" class="input" maxlength="120"></div>
+          <div class="field"><label>Fecha ingreso</label><input id="fldHireDate" type="date" class="input"></div>
+        </div>
+
+        <div class="form-section-title">Asignación</div>
+        <div class="form-grid">
+          <div class="field"><label>Campaña *</label><input id="fldCampaign" class="input" list="campaignList" required maxlength="120"></div>
+          <div class="field"><label>Canal</label><select id="fldChannel" class="input"><option>Llamadas</option><option>Chat</option></select></div>
+          <datalist id="campaignList"></datalist>
+        </div>
+
+        <div class="form-section-title">Horario semanal</div>
+        <div class="schedule-grid">
+          <div class="field"><label>Lunes</label><input id="fldLun" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Martes</label><input id="fldMar" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Miércoles</label><input id="fldMie" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Jueves</label><input id="fldJue" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Viernes</label><input id="fldVie" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Sábado</label><input id="fldSab" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Domingo</label><input id="fldDom" class="input" placeholder="08:00-17:00 o DD-DD"></div>
+        </div>
+
+        <div class="form-section-title">Notas</div>
+        <div class="form-grid">
+          <div class="field field-full"><label>Comentarios</label><input id="fldNotes" class="input" maxlength="500"></div>
+          <div class="field field-full"><label>Motivo del cambio (historial)</label><input id="fldReason" class="input" maxlength="500" placeholder="Ej. Alta, corrección de campaña, ajuste de horario…"></div>
+        </div>
+      </form>
+      <p class="helper-inline">Los horarios aceptan formato 24h. Usa <strong>DD-DD</strong> para descanso. Si el turno cruza medianoche, indica p. ej. <strong>22:00-07:00</strong>.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAgentModal()">Cancelar</button>
+      <button class="btn-save" id="agentSaveBtn" onclick="document.getElementById('agentForm').requestSubmit()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="terminateModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title" id="terminateTitle">Registrar baja</h3>
+        <p class="modal-sub" id="terminateSub">La baja quedará registrada con fecha y motivo.</p>
+      </div>
+      <button class="modal-close" onclick="closeTerminateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="terminateAgentId">
+      <div class="form-grid">
+        <div class="field field-full"><label>Fecha de baja *</label><input id="terminateDate" type="date" class="input" required></div>
+        <div class="field field-full"><label>Motivo</label><input id="terminateReason" class="input" maxlength="500" placeholder="Renuncia, término de contrato, desempeño…"></div>
+        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-soft);cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
+      </div>
+      <p class="helper-inline">Si la fecha es futura, el colaborador permanecerá activo hasta esa fecha y se mostrará como <strong>baja programada</strong>.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeTerminateModal()">Cancelar</button>
+      <button class="btn-save" id="terminateBtn" onclick="submitTermination()">Registrar baja</button>
+    </div>
+  </div>
+</div>
+
+<div id="transferModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title" id="transferTitle">Transferir campaña</h3>
+        <p class="modal-sub" id="transferSub">La campaña se actualizará y la transferencia quedará en el historial.</p>
+      </div>
+      <button class="modal-close" onclick="closeTransferModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="transferAgentId">
+      <div class="form-grid">
+        <div class="field field-full"><label>Campaña destino *</label><input id="transferCampaign" class="input" list="campaignList" required maxlength="120"></div>
+        <div class="field"><label>Canal destino</label><select id="transferChannel" class="input"><option>Llamadas</option><option>Chat</option></select></div>
+        <div class="field"><label>Fecha efectiva *</label><input id="transferDate" type="date" class="input" required></div>
+        <div class="field field-full"><label>Motivo</label><input id="transferReason" class="input" maxlength="500" placeholder="Cierre de campaña, reorganización…"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeTransferModal()">Cancelar</button>
+      <button class="btn-save" id="transferBtn" onclick="submitTransfer()">Transferir</button>
+    </div>
+  </div>
+</div>
+
+<div id="historyModal" class="modal-backdrop hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title" id="historyTitle">Historial del agente</h3>
+        <p class="modal-sub" id="historySub"></p>
+      </div>
+      <button class="modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="historyBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const state = {
+  agents: [],
+  campaigns: [],
+  supervisors: [],
+  metrics: null,
+  currentTab: 'agents',
+  debounceTimer: null,
+  editingAgent: null,
+  terminateMode: 'single',
+  terminateIds: [],
+};
+
+const api = {
+  async get(url) {
+    const r = await fetch(url, {cache: 'no-store'});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  },
+  async send(method, url, body) {
+    const r = await fetch(url, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body || {})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  }
+};
+
+function fmtDate(d) {
+  if (!d) return '—';
+  const s = String(d).slice(0, 10);
+  return s;
+}
+
+function debounceLoadAgents() {
+  clearTimeout(state.debounceTimer);
+  state.debounceTimer = setTimeout(loadAgents, 250);
+}
+
+function toast(msg, kind = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast is-visible ${kind === 'error' ? 'is-error' : ''}`;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('is-visible'), 3000);
+}
+
+async function refreshAll() {
+  await Promise.all([loadAgents(), refreshMetrics(), refreshFilters()]);
+}
+
+async function refreshFilters() {
+  try {
+    const [c, s] = await Promise.all([
+      api.get('/api/hc/campaigns'),
+      api.get('/api/hc/supervisors')
+    ]);
+    state.campaigns = c.campaigns || [];
+    state.supervisors = s.supervisors || [];
+
+    const campaignSel = document.getElementById('filterCampaign');
+    const currentCampaign = campaignSel.value;
+    campaignSel.innerHTML = '<option value="">Todas</option>' +
+      state.campaigns.map(x => `<option>${escape(x)}</option>`).join('');
+    campaignSel.value = state.campaigns.includes(currentCampaign) ? currentCampaign : '';
+
+    const supSel = document.getElementById('filterSupervisor');
+    const currentSup = supSel.value;
+    supSel.innerHTML = '<option value="">Todos</option>' +
+      state.supervisors.map(x => `<option>${escape(x)}</option>`).join('');
+    supSel.value = state.supervisors.includes(currentSup) ? currentSup : '';
+
+    document.getElementById('campaignList').innerHTML =
+      state.campaigns.map(x => `<option value="${escape(x)}"></option>`).join('');
+    document.getElementById('supervisorList').innerHTML =
+      state.supervisors.map(x => `<option value="${escape(x)}"></option>`).join('');
+  } catch (e) { console.warn('refreshFilters:', e); }
+}
+
+async function refreshMetrics() {
+  const start = document.getElementById('periodStart').value;
+  const end = document.getElementById('periodEnd').value;
+  const qs = new URLSearchParams();
+  if (start) qs.set('start', start);
+  if (end) qs.set('end', end);
+  try {
+    const m = await api.get('/api/hc/metrics?' + qs.toString());
+    state.metrics = m;
+    document.getElementById('kpiActive').textContent = m.active;
+    document.getElementById('kpiActiveHint').textContent =
+      `Al ${fmtDate(m.asOf)} · inicio periodo: ${m.activeAtStart}`;
+    document.getElementById('kpiHires').textContent = m.newHires;
+    document.getElementById('kpiHiresHint').textContent = `Periodo ${fmtDate(m.periodStart)} → ${fmtDate(m.periodEnd)}`;
+    document.getElementById('kpiTerminations').textContent = m.terminations;
+    document.getElementById('kpiTerminationsHint').textContent = m.transfers
+      ? `${m.transfers} transferencia(s) · neto ${m.netChange >= 0 ? '+' : ''}${m.netChange}`
+      : `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
+    document.getElementById('kpiAttrition').textContent = m.attrition + '%';
+    document.getElementById('kpiAttritionHint').textContent = 'Bajas ÷ HC inicial del periodo';
+
+    const strip = document.getElementById('campaignStrip');
+    if (!m.byCampaign.length) {
+      strip.innerHTML = '<p style="color:var(--text-muted);font-size:11px">Sin campañas registradas aún.</p>';
+    } else {
+      strip.innerHTML = m.byCampaign.map(c => `
+        <div class="campaign-chip">
+          <div class="campaign-chip-name" title="${escape(c.campaign)}">${escape(c.campaign)}</div>
+          <div class="campaign-chip-count">${c.count} <span class="campaign-chip-channel">· ${escape(c.channel)}</span></div>
+        </div>
+      `).join('');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadAgents() {
+  const params = new URLSearchParams();
+  const map = {
+    campaign: 'filterCampaign',
+    channel: 'filterChannel',
+    supervisor: 'filterSupervisor',
+    status: 'filterStatus',
+    search: 'filterSearch'
+  };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  try {
+    const data = await api.get('/api/hc/agents?' + params.toString());
+    state.agents = data.agents || [];
+    renderAgents();
+    document.getElementById('tabCountAgents').textContent = state.agents.length;
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function resetFilters() {
+  ['filterCampaign', 'filterChannel', 'filterSupervisor', 'filterStatus', 'filterSearch'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  loadAgents();
+}
+
+function renderAgents() {
+  const body = document.getElementById('agentsBody');
+  const empty = document.getElementById('agentsEmpty');
+  if (!state.agents.length) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  body.innerHTML = state.agents.map(a => {
+    const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
+    const rowClass = isBaja ? 'is-baja' : '';
+    let statusBadge = '';
+    if (a.displayStatus === 'Activo') statusBadge = '<span class="badge badge-active">Activo</span>';
+    else if (a.displayStatus === 'Baja programada') statusBadge = `<span class="badge badge-pending" title="Baja ${escape(a.terminationDate)}">Baja ${escape(fmtDate(a.terminationDate))}</span>`;
+    else statusBadge = '<span class="badge badge-baja">Baja</span>';
+
+    const sched = a.schedules || {};
+    const dayChip = k => {
+      const v = sched[k] || 'DD-DD';
+      const off = v === 'DD-DD' ? 'is-off' : '';
+      return `<td><span class="schedule-chip ${off}">${escape(v)}</span></td>`;
+    };
+
+    return `
+      <tr class="${rowClass}">
+        <td class="mono agent-id">${escape(a.agentId)}</td>
+        <td><div class="agent-name" title="${escape(a.fullName)}">${escape(a.fullName || '—')}</div></td>
+        <td>${escape(a.supervisor || '—')}</td>
+        <td>${escape(a.coordinator || '—')}</td>
+        <td>${escape(a.campaign)}</td>
+        <td><span class="badge badge-channel">${escape(a.channel)}</span></td>
+        <td>${statusBadge}</td>
+        <td class="mono">${escape(fmtDate(a.hireDate))}</td>
+        <td class="mono">${escape(fmtDate(a.terminationDate))}</td>
+        ${dayChip('Lunes')}${dayChip('Martes')}${dayChip('Miércoles')}${dayChip('Jueves')}
+        ${dayChip('Viernes')}${dayChip('Sábado')}${dayChip('Domingo')}
+        <td>
+          <div class="row-actions">
+            <button class="icon-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
+            <button class="icon-btn" onclick="openHistoryModal('${escapeAttr(a.agentId)}')">Historial</button>
+            ${a.terminationDate
+              ? `<button class="icon-btn success" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
+              : `<button class="icon-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
+                 <button class="icon-btn danger" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function escape(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
+
+function setTab(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('is-active', t.dataset.tab === tab));
+  ['agents', 'history', 'terminations', 'transfers'].forEach(t => {
+    document.getElementById('view-' + t).style.display = (t === tab) ? 'block' : 'none';
+  });
+  if (tab === 'history') loadHistory();
+  if (tab === 'terminations') loadTerminations();
+  if (tab === 'transfers') loadTransfers();
+}
+
+async function loadHistory() {
+  try {
+    const data = await api.get('/api/hc/history?limit=200');
+    const list = document.getElementById('historyList');
+    if (!data.history.length) {
+      list.innerHTML = '<div class="empty">Aún no hay cambios registrados.</div>';
+      return;
+    }
+    list.innerHTML = data.history.map(h => {
+      const tagClass = h.changeType.includes('created') ? 'created'
+        : h.changeType.includes('terminated') ? 'terminated'
+        : h.changeType.includes('reactivated') ? 'reactivated'
+        : h.changeType.includes('transferred') ? 'transferred'
+        : 'updated';
+      const label = {
+        agent_created: 'Alta',
+        agent_updated: 'Edición',
+        agent_terminated: 'Baja',
+        agent_reactivated: 'Reactivación',
+        campaign_transferred: 'Transferencia'
+      }[h.changeType] || h.changeType;
+      const detail = describeChange(h);
+      return `
+        <div class="list-item">
+          <div class="list-item-title">
+            <span class="change-tag ${tagClass}">${escape(label)}</span>
+            ${escape(h.agentId)}
+          </div>
+          <p class="list-item-meta">${escape(h.changedAt)} · por ${escape(h.changedBy || 'operaciones')}</p>
+          <p class="list-item-detail">${detail}</p>
+          ${h.reason ? `<p class="list-item-meta" style="margin-top:4px">Motivo: ${escape(h.reason)}</p>` : ''}
+        </div>`;
+    }).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function describeChange(h) {
+  const b = h.before || {}, a = h.after || {};
+  switch (h.changeType) {
+    case 'agent_created':
+      return `Alta: ${escape(a.fullName || '')} · ${escape(a.campaign || '')} · ingreso ${escape(fmtDate(a.hireDate))}`;
+    case 'agent_terminated':
+      return `Baja con fecha ${escape(fmtDate(a.terminationDate))}${a.reason ? ' · ' + escape(a.reason) : ''}`;
+    case 'agent_reactivated':
+      return `Reactivado con ingreso ${escape(fmtDate(a.hireDate))}`;
+    case 'campaign_transferred':
+      return `Campaña: ${escape(b.fromCampaign || '')} → ${escape(a.toCampaign || '')} · canal ${escape(b.fromChannel || '')} → ${escape(a.toChannel || '')} · efectivo ${escape(fmtDate(a.effectiveDate))}`;
+    case 'agent_updated': {
+      const diff = [];
+      if (b.campaign !== a.campaign) diff.push(`campaña ${escape(b.campaign || '')} → ${escape(a.campaign || '')}`);
+      if (b.supervisor !== a.supervisor) diff.push(`supervisor ${escape(b.supervisor || '—')} → ${escape(a.supervisor || '—')}`);
+      if (b.coordinator !== a.coordinator) diff.push(`coordinador ${escape(b.coordinator || '—')} → ${escape(a.coordinator || '—')}`);
+      if (b.channel !== a.channel) diff.push(`canal ${escape(b.channel || '')} → ${escape(a.channel || '')}`);
+      if (JSON.stringify(b.schedules) !== JSON.stringify(a.schedules)) diff.push('horario actualizado');
+      return diff.length ? diff.join(' · ') : 'Actualización de datos';
+    }
+    default:
+      return escape(h.changeType);
+  }
+}
+
+async function loadTerminations() {
+  try {
+    const data = await api.get('/api/hc/terminations');
+    const list = document.getElementById('terminationsList');
+    if (!data.terminations.length) {
+      list.innerHTML = '<div class="empty">Sin bajas registradas.</div>';
+      return;
+    }
+    list.innerHTML = data.terminations.map(t => `
+      <div class="list-item">
+        <div class="list-item-title">${escape(t.agent_id)} · ${escape(t.full_name || '')}</div>
+        <p class="list-item-meta">Baja ${escape(fmtDate(t.termination_date))} · ${escape(t.campaign || '')} · ${escape(t.channel || '')}</p>
+        ${t.reason ? `<p class="list-item-detail">Motivo: ${escape(t.reason)}</p>` : ''}
+        <p class="list-item-meta" style="margin-top:4px">${t.rehireable ? '✓ Elegible para recontratación' : '✗ No elegible para recontratación'}</p>
+      </div>
+    `).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadTransfers() {
+  try {
+    const data = await api.get('/api/hc/transfers');
+    const list = document.getElementById('transfersList');
+    if (!data.transfers.length) {
+      list.innerHTML = '<div class="empty">Sin transferencias registradas.</div>';
+      return;
+    }
+    list.innerHTML = data.transfers.map(t => `
+      <div class="list-item">
+        <div class="list-item-title">${escape(t.agent_id)} · ${escape(t.full_name || '')}</div>
+        <p class="list-item-detail">${escape(t.from_campaign)} (${escape(t.from_channel)}) → <strong>${escape(t.to_campaign)}</strong> (${escape(t.to_channel)})</p>
+        <p class="list-item-meta">Efectiva ${escape(fmtDate(t.effective_date))}${t.reason ? ' · ' + escape(t.reason) : ''}</p>
+      </div>
+    `).join('');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openAgentModal(agentId = null) {
+  state.editingAgent = agentId;
+  document.getElementById('agentEditId').value = agentId || '';
+  document.getElementById('agentModalTitle').textContent = agentId ? `Editar · ${agentId}` : 'Nuevo agente';
+  const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
+  const fld = id => document.getElementById(id);
+
+  fld('fldAgentId').value = a?.agentId || '';
+  fld('fldAgentId').disabled = !!a;
+  fld('fldFullName').value = a?.fullName || '';
+  fld('fldSupervisor').value = a?.supervisor || '';
+  fld('fldCoordinator').value = a?.coordinator || '';
+  fld('fldCampaign').value = a?.campaign || '';
+  fld('fldChannel').value = a?.channel || 'Llamadas';
+  fld('fldEmail').value = a?.email || '';
+  fld('fldEmployeeNumber').value = a?.employeeNumber || '';
+  fld('fldHireDate').value = (a?.hireDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  fld('fldNotes').value = a?.notes || '';
+  fld('fldReason').value = '';
+  const sched = a?.schedules || {};
+  fld('fldLun').value = sched.Lunes || 'DD-DD';
+  fld('fldMar').value = sched.Martes || 'DD-DD';
+  fld('fldMie').value = sched['Miércoles'] || 'DD-DD';
+  fld('fldJue').value = sched.Jueves || 'DD-DD';
+  fld('fldVie').value = sched.Viernes || 'DD-DD';
+  fld('fldSab').value = sched['Sábado'] || 'DD-DD';
+  fld('fldDom').value = sched.Domingo || 'DD-DD';
+
+  document.getElementById('agentModal').classList.remove('hidden');
+  setTimeout(() => fld('fldAgentId').focus(), 50);
+}
+function closeAgentModal() {
+  document.getElementById('agentModal').classList.add('hidden');
+  state.editingAgent = null;
+}
+
+async function saveAgent(event) {
+  event.preventDefault();
+  const btn = document.getElementById('agentSaveBtn');
+  btn.disabled = true;
+  try {
+    const payload = {
+      agentId: document.getElementById('fldAgentId').value.trim(),
+      fullName: document.getElementById('fldFullName').value.trim(),
+      supervisor: document.getElementById('fldSupervisor').value.trim(),
+      coordinator: document.getElementById('fldCoordinator').value.trim(),
+      campaign: document.getElementById('fldCampaign').value.trim(),
+      channel: document.getElementById('fldChannel').value,
+      email: document.getElementById('fldEmail').value.trim(),
+      employeeNumber: document.getElementById('fldEmployeeNumber').value.trim(),
+      hireDate: document.getElementById('fldHireDate').value || null,
+      notes: document.getElementById('fldNotes').value.trim(),
+      reason: document.getElementById('fldReason').value.trim(),
+      actorMode: 'operaciones',
+      schedules: {
+        'Lunes': document.getElementById('fldLun').value,
+        'Martes': document.getElementById('fldMar').value,
+        'Miércoles': document.getElementById('fldMie').value,
+        'Jueves': document.getElementById('fldJue').value,
+        'Viernes': document.getElementById('fldVie').value,
+        'Sábado': document.getElementById('fldSab').value,
+        'Domingo': document.getElementById('fldDom').value
+      }
+    };
+    if (!payload.agentId) throw new Error('El ID del agente es obligatorio.');
+    if (!payload.campaign) throw new Error('La campaña es obligatoria.');
+
+    if (state.editingAgent) {
+      await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload);
+      toast(`Agente ${payload.agentId} actualizado.`);
+    } else {
+      await api.send('POST', '/api/hc/agents', payload);
+      toast(`Agente ${payload.agentId} creado.`);
+    }
+    closeAgentModal();
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openTerminateModal(agentId) {
+  state.terminateMode = 'single';
+  state.terminateIds = [agentId];
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('terminateTitle').textContent = 'Registrar baja';
+  document.getElementById('terminateSub').textContent = a
+    ? `${a.agentId} · ${a.fullName || ''} · ${a.campaign || ''}`
+    : 'Registrar baja del colaborador.';
+  document.getElementById('terminateAgentId').value = agentId;
+  document.getElementById('terminateDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('terminateReason').value = '';
+  document.getElementById('terminateRehireable').checked = true;
+  document.getElementById('terminateModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('terminateDate').focus(), 50);
+}
+function closeTerminateModal() {
+  document.getElementById('terminateModal').classList.add('hidden');
+  state.terminateMode = 'single';
+  state.terminateIds = [];
+}
+
+async function submitTermination() {
+  const btn = document.getElementById('terminateBtn');
+  btn.disabled = true;
+  try {
+    const date = document.getElementById('terminateDate').value;
+    if (!date) throw new Error('Selecciona la fecha de baja.');
+    const reason = document.getElementById('terminateReason').value.trim();
+    const rehireable = document.getElementById('terminateRehireable').checked;
+
+    if (state.terminateMode === 'single') {
+      const id = document.getElementById('terminateAgentId').value;
+      await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, {
+        terminationDate: date,
+        reason: reason || 'Baja registrada',
+        rehireable,
+        actorMode: 'operaciones'
+      });
+      toast(`Baja registrada para ${id}.`);
+    } else {
+      const data = await api.send('POST', '/api/hc/agents/bulk-terminate', {
+        agentIds: state.terminateIds,
+        terminationDate: date,
+        reason: reason || 'Baja masiva',
+        rehireable,
+        actorMode: 'operaciones'
+      });
+      toast(`Bajas procesadas: ${data.succeeded}/${data.processed}.`);
+    }
+    closeTerminateModal();
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openTransferModal(agentId) {
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('transferTitle').textContent = 'Transferir campaña';
+  document.getElementById('transferSub').textContent = a
+    ? `${a.agentId} · ${a.fullName || ''} · actualmente ${a.campaign} (${a.channel})`
+    : '';
+  document.getElementById('transferAgentId').value = agentId;
+  document.getElementById('transferCampaign').value = '';
+  document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
+  document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('transferReason').value = '';
+  document.getElementById('transferModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('transferCampaign').focus(), 50);
+}
+function closeTransferModal() {
+  document.getElementById('transferModal').classList.add('hidden');
+}
+
+async function submitTransfer() {
+  const btn = document.getElementById('transferBtn');
+  btn.disabled = true;
+  try {
+    const id = document.getElementById('transferAgentId').value;
+    const toCampaign = document.getElementById('transferCampaign').value.trim();
+    const toChannel = document.getElementById('transferChannel').value;
+    const effectiveDate = document.getElementById('transferDate').value;
+    const reason = document.getElementById('transferReason').value.trim();
+    if (!toCampaign) throw new Error('Indica la campaña destino.');
+    if (!effectiveDate) throw new Error('Indica la fecha efectiva.');
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, {
+      toCampaign, toChannel, effectiveDate,
+      reason: reason || 'Transferencia de campaña',
+      actorMode: 'operaciones'
+    });
+    toast(`Transferencia registrada para ${id}.`);
+    closeTransferModal();
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function reactivateAgent(agentId) {
+  if (!confirm(`¿Reactivar a ${agentId}?\nSe borrará la fecha de baja actual.`)) return;
+  try {
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, {
+      reason: 'Reactivación desde tablero de Operaciones',
+      actorMode: 'operaciones'
+    });
+    toast(`Agente ${agentId} reactivado.`);
+    await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function openHistoryModal(agentId) {
+  document.getElementById('historyTitle').textContent = `Historial · ${agentId}`;
+  document.getElementById('historySub').textContent = '';
+  const body = document.getElementById('historyBody');
+  body.innerHTML = '<p style="color:var(--text-muted);font-size:11px">Cargando historial…</p>';
+  document.getElementById('historyModal').classList.remove('hidden');
+  try {
+    const data = await api.get(`/api/hc/agents/${encodeURIComponent(agentId)}/history`);
+    if (!data.history.length) {
+      body.innerHTML = '<div class="empty">Sin movimientos registrados.</div>';
+      return;
+    }
+    body.innerHTML = data.history.map(h => {
+      const tagClass = h.changeType.includes('created') ? 'created'
+        : h.changeType.includes('terminated') ? 'terminated'
+        : h.changeType.includes('reactivated') ? 'reactivated'
+        : h.changeType.includes('transferred') ? 'transferred'
+        : 'updated';
+      return `
+        <div class="list-item">
+          <div class="list-item-title">
+            <span class="change-tag ${tagClass}">${escape(h.changeType)}</span>
+            ${escape(h.changedAt)} · ${escape(h.changedBy || '')}
+          </div>
+          <p class="list-item-detail">${describeChange(h)}</p>
+          ${h.reason ? `<p class="list-item-meta">Motivo: ${escape(h.reason)}</p>` : ''}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="empty" style="color:var(--danger)">${escape(e.message)}</div>`;
+  }
+}
+function closeHistoryModal() { document.getElementById('historyModal').classList.add('hidden'); }
+
+function downloadTemplate() {
+  window.location.href = '/api/hc/template';
+}
+function exportCsv() {
+  window.location.href = '/api/hc/export';
+}
+
+async function importFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados. Los nuevos serán creados.`)) {
+    event.target.value = '';
+    return;
+  }
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('actorMode', 'operaciones');
+    const r = await fetch('/api/hc/import', {method: 'POST', body: fd});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al importar.');
+    toast(`Importación: ${data.imported} agente(s) procesado(s)${data.errors?.length ? ' · ' + data.errors.length + ' con error' : ''}.`);
+    if (data.errors?.length) {
+      console.warn('Errores de importación:', data.errors);
+    }
+    await refreshAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+window.bulkTerminate = function(ids) {
+  if (!Array.isArray(ids) || !ids.length) return;
+  state.terminateMode = 'bulk';
+  state.terminateIds = ids;
+  document.getElementById('terminateTitle').textContent = `Baja masiva (${ids.length})`;
+  document.getElementById('terminateSub').textContent = 'Se procesarán todos los IDs seleccionados.';
+  document.getElementById('terminateAgentId').value = '';
+  document.getElementById('terminateDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('terminateReason').value = '';
+  document.getElementById('terminateRehireable').checked = true;
+  document.getElementById('terminateModal').classList.remove('hidden');
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 30);
+  document.getElementById('periodStart').value = start.toISOString().slice(0, 10);
+  document.getElementById('periodEnd').value = today.toISOString().slice(0, 10);
+  refreshAll();
+});
+</script>
+</body>
+</html>
