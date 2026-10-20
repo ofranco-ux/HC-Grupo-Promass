@@ -301,28 +301,31 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     validity = payload.get('validity') or {}
     is_temp = validity.get('type') == 'temporary'
     
+    # Estos 18 valores corresponden exactamente a las columnas desde full_name hasta domingo
     values = (
         str(payload.get('fullName') or '').strip()[:120], role, is_new_hire, supervisor,
         coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
         hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
         str(payload.get('notes') or '').strip()[:500], 
-        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo'],
-        now, actor,
+        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo']
     )
 
     if before is None:
-        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values)
+        # INSERT: 1 (new_id) + 18 (values) + 3 (now, now, actor) = 22 parámetros
+        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values + (now, now, actor))
         _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[5], 'channel': values[6], 'supervisor': values[3], 'coordinator': values[4], 'hireDate': hire_date, 'isNewHire': bool(is_new_hire)}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
     else:
         if is_temp:
-            update_values = values[:10] + (
+            # Si es temporal, conservamos los horarios base anteriores y solo actualizamos datos del perfil
+            update_values = values[:11] + (
                 before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
                 before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
-            ) + values[17:]
+            ) # 11 + 7 = 18 parámetros
         else:
-            update_values = values
+            update_values = values # 18 parámetros
             
-        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (old_id,))
+        # UPDATE: 1 (new_id) + 18 (update_values) + 2 (now, actor) + 1 (old_id) = 22 parámetros
+        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (now, actor, old_id))
         
         if is_temp:
             start = _validate_date(validity.get('startDate'), 'fecha inicio')
