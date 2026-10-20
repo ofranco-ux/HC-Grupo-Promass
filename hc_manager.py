@@ -221,7 +221,6 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
     if hire_date: 
         hire_date = _validate_date(hire_date, 'fecha de ingreso')
     elif before is None: 
-        # Importante: NULL asegura que el agente cuente para el HC inicial si no tiene fecha.
         hire_date = None
 
     now = _now()
@@ -510,6 +509,8 @@ def hc_metrics():
     campaign = request.args.get('campaign', '').strip()
     channel = request.args.get('channel', '').strip()
     supervisor = request.args.get('supervisor', '').strip()
+    coordinator = request.args.get('coordinator', '').strip()
+    status_filter = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip().lower()
 
     filters = []
@@ -523,6 +524,13 @@ def hc_metrics():
     if supervisor:
         filters.append("a.supervisor=?")
         args.append(supervisor)
+    if coordinator:
+        filters.append("a.coordinator=?")
+        args.append(coordinator)
+    if status_filter == 'Activo':
+        filters.append("a.status='Activo'")
+    elif status_filter == 'Baja':
+        filters.append("a.status='Baja'")
     if search:
         filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
         args.extend([f"%{search}%", f"%{search}%"])
@@ -531,42 +539,18 @@ def hc_metrics():
 
     conn = _conn()
     try:
-        # 1. Agentes activos
+        # 1. Agentes activos actuales
         active = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' "
             "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
             [today] + args
         ).fetchone()[0]
 
-        # 2. HC inicial
-        month_start = datetime.now().strftime('%Y-%m-01')
-        next_month_date = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1)
-        next_month_start = next_month_date.strftime('%Y-%m-%d')
-        
-        active_at_start = conn.execute(
-            "SELECT COUNT(*) FROM hc_agents a WHERE "
-            "(a.hire_date IS NULL OR a.hire_date <= ?) "
-            "AND (a.termination_date IS NULL OR a.termination_date >= ?) "
-            "AND (COALESCE(a.status, '') <> 'Baja' OR "
-            "(a.termination_date IS NOT NULL AND a.termination_date >= ?) OR "
-            "(a.termination_date IS NULL AND ? < ?))"
-            + agent_where,
-            [start, start, start, start, next_month_start] + args
-        ).fetchone()[0]
-
-        # 3. Distribución por campaña
-        by_campaign = [dict(r) for r in conn.execute(
-            "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
-            "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
-            + agent_where + " GROUP BY a.campaign, a.channel ORDER BY count DESC",
-            [today] + args
-        ).fetchall()]
-
-        # 4. Bajas del periodo
+        # 2. Bajas del periodo
         term_query_parts = []
         term_args = []
-
-        # Bloque 1: Historial de bajas
+        
+        # Bloque 1: Historial
         q1 = "SELECT t.agent_id AS agent_id FROM hc_terminations t JOIN hc_agents a ON a.agent_id = t.agent_id WHERE t.termination_date BETWEEN ? AND ?"
         q1_args = [start, end]
         if agent_where:
@@ -575,7 +559,7 @@ def hc_metrics():
         term_query_parts.append(q1)
         term_args.extend(q1_args)
 
-        # Bloque 2: Bajas en la tabla de agentes con fecha
+        # Bloque 2: Agentes con fecha
         q2 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.termination_date BETWEEN ? AND ?"
         q2_args = [start, end]
         if agent_where:
@@ -584,7 +568,9 @@ def hc_metrics():
         term_query_parts.append(q2)
         term_args.extend(q2_args)
 
-        # Bloque 3: Bajas heredadas sin fecha (si aplica)
+        # Bloque 3: Bajas sin fecha
+        month_start = datetime.now().strftime('%Y-%m-01')
+        next_month_start = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m-%d')
         if start < next_month_start and end >= month_start:
             q3 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.status = 'Baja' AND a.termination_date IS NULL"
             q3_args = []
@@ -597,13 +583,13 @@ def hc_metrics():
         termination_sql = "SELECT COUNT(DISTINCT agent_id) FROM (" + " UNION ".join(term_query_parts) + ")"
         terminations = conn.execute(termination_sql, term_args).fetchone()[0]
 
-        # 5. Altas
+        # 3. Altas
         new_hires = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where,
             [start, end] + args
         ).fetchone()[0]
 
-        # 6. Transferencias
+        # 4. Transferencias
         transfer_filters = []
         transfer_args = [start, end]
         if campaign:
@@ -615,6 +601,9 @@ def hc_metrics():
         if supervisor:
             transfer_filters.append("a.supervisor=?")
             transfer_args.append(supervisor)
+        if coordinator:
+            transfer_filters.append("a.coordinator=?")
+            transfer_args.append(coordinator)
         if search:
             transfer_filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
             transfer_args.extend([f"%{search}%", f"%{search}%"])
@@ -624,8 +613,22 @@ def hc_metrics():
             transfer_sql += " AND " + " AND ".join(transfer_filters)
         transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
 
-        attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start else 0.0
+        # 5. Distribución por campaña
+        by_campaign = [dict(r) for r in conn.execute(
+            "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
+            "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
+            + agent_where + " GROUP BY a.campaign, a.channel ORDER BY count DESC",
+            [today] + args
+        ).fetchall()]
+
+        # 6. Cálculo de Rotación
+        # HC inicial = HC actual + Bajas - Altas
+        active_at_start = active + terminations - new_hires
+        if active_at_start < 0: active_at_start = 0
+        
+        attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start > 0 else 0.0
         net_change = new_hires - terminations
+
     finally:
         conn.close()
 
