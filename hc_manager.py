@@ -1233,4 +1233,4 @@ if __name__ == '__main__':
     _init_db()
     app = create_hc_app()
     port = int(os.environ.get('HC_PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')s
