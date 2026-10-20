@@ -294,15 +294,14 @@
           
           <div class="field">
             <label>Puesto / Rol</label>
-            <input id="fldRole" list="rolesList" maxlength="120" placeholder="Agente">
-            <datalist id="rolesList">
-                <option value="Agente">
-                <option value="Supervisor">
-                <option value="Coordinador">
-                <option value="Staff QA">
-                <option value="Formador">
-                <option value="Administrativo">
-            </datalist>
+            <select id="fldRole" class="roster-select" style="font-size:13px; padding: 0 12px;">
+                <option value="Agente">Agente</option>
+                <option value="Supervisor">Supervisor</option>
+                <option value="Coordinador">Coordinador</option>
+                <option value="Staff QA">Staff QA</option>
+                <option value="Formador">Formador</option>
+                <option value="Administrativo">Administrativo</option>
+            </select>
           </div>
           <div class="field">
             <label>Tipo de Agente</label>
@@ -837,7 +836,18 @@ async function openAgentModal(agentId = null) {
   fld('fldAgentId').disabled = false; 
   
   fld('fldFullName').value = a?.fullName || ''; 
-  fld('fldRole').value = a?.role || 'Agente';
+  
+  // Lógica segura para el SELECT de Puesto/Rol
+  const roleSelect = fld('fldRole');
+  const roleVal = a?.role || 'Agente';
+  if (!Array.from(roleSelect.options).some(opt => opt.value === roleVal)) {
+      const newOpt = document.createElement('option');
+      newOpt.value = roleVal;
+      newOpt.text = roleVal;
+      roleSelect.add(newOpt);
+  }
+  roleSelect.value = roleVal;
+
   fld('fldIsNewHire').value = a?.isNewHire ? '1' : '0';
   fld('fldSupervisor').value = a?.supervisor || '';
   fld('fldCoordinator').value = a?.coordinator || ''; 
