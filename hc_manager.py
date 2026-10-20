@@ -550,7 +550,6 @@ def hc_metrics():
         term_query_parts = []
         term_args = []
         
-        # Bloque 1: Historial
         q1 = "SELECT t.agent_id AS agent_id FROM hc_terminations t JOIN hc_agents a ON a.agent_id = t.agent_id WHERE t.termination_date BETWEEN ? AND ?"
         q1_args = [start, end]
         if agent_where:
@@ -559,7 +558,6 @@ def hc_metrics():
         term_query_parts.append(q1)
         term_args.extend(q1_args)
 
-        # Bloque 2: Agentes con fecha
         q2 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.termination_date BETWEEN ? AND ?"
         q2_args = [start, end]
         if agent_where:
@@ -568,7 +566,6 @@ def hc_metrics():
         term_query_parts.append(q2)
         term_args.extend(q2_args)
 
-        # Bloque 3: Bajas sin fecha
         month_start = datetime.now().strftime('%Y-%m-01')
         next_month_start = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m-%d')
         if start < next_month_start and end >= month_start:
@@ -621,11 +618,11 @@ def hc_metrics():
             [today] + args
         ).fetchall()]
 
-        # 6. Cálculo de Rotación
-        # HC inicial = HC actual + Bajas - Altas
+        # 6. Cálculo de Rotación (Fórmula infalible)
         active_at_start = active + terminations - new_hires
-        if active_at_start < 0: active_at_start = 0
-        
+        if active_at_start <= 0:
+            active_at_start = active
+            
         attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start > 0 else 0.0
         net_change = new_hires - terminations
 
@@ -775,7 +772,6 @@ def hc_import():
 
                     now = _now()
                     
-                    # 1. Insertar o actualizar agente
                     conn.execute("""
                         INSERT INTO hc_agents (
                             agent_id, full_name, supervisor, coordinator, campaign, channel, 
@@ -814,7 +810,6 @@ def hc_import():
                         now, now, actor
                     ))
 
-                    # 2. Si es baja, registrar/actualizar en la tabla de terminaciones
                     if is_baja:
                         conn.execute("DELETE FROM hc_terminations WHERE agent_id = ?", (agent_id,))
                         conn.execute("""
