@@ -412,7 +412,7 @@ async function refreshFilters() {
 
 async function refreshMetrics() {
   const params = new URLSearchParams();
-  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', search: 'filterSearch' };
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
   Object.entries(map).forEach(([k, id]) => {
     const v = document.getElementById(id).value.trim();
     if (v) params.set(k, v);
