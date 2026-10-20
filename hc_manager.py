@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS hc_absences (
     FOREIGN KEY(agent_id) REFERENCES hc_agents(agent_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS hc_schedule_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    schedules_json TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(agent_id) REFERENCES hc_agents(agent_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_hc_campaign ON hc_agents(campaign);
 CREATE INDEX IF NOT EXISTS idx_hc_status ON hc_agents(status);
 CREATE INDEX IF NOT EXISTS idx_hc_termination ON hc_agents(termination_date);
@@ -106,6 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_hc_history_agent ON hc_history(agent_id);
 CREATE INDEX IF NOT EXISTS idx_hc_term_agent ON hc_terminations(agent_id);
 CREATE INDEX IF NOT EXISTS idx_hc_transfers_agent ON hc_transfers(agent_id);
 CREATE INDEX IF NOT EXISTS idx_hc_absences_agent ON hc_absences(agent_id);
+CREATE INDEX IF NOT EXISTS idx_hc_overrides_agent ON hc_schedule_overrides(agent_id);
 """
 
 def _conn():
@@ -224,21 +237,52 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
         hire_date = None
 
     now = _now()
+    
+    # Si se envía validez temporal, solo actualizamos los datos fijos y guardamos el horario en la tabla temporal
+    validity = payload.get('validity') or {}
+    is_temp = validity.get('type') == 'temporary'
+    
     values = (
         str(payload.get('fullName') or '').strip()[:120], str(payload.get('supervisor') or '').strip()[:120],
         str(payload.get('coordinator') or '').strip()[:120], campaign[:120], _normalize_channel(payload.get('channel')),
         hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
-        str(payload.get('notes') or '').strip()[:500], days['Lunes'], days['Martes'], days['Miércoles'],
-        days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo'], now, actor,
+        str(payload.get('notes') or '').strip()[:500], 
+        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo'],
+        now, actor,
     )
 
     if before is None:
         conn.execute("""INSERT INTO hc_agents (agent_id, full_name, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (agent_id,) + values)
         _log_history(conn, agent_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[3], 'channel': values[4], 'supervisor': values[1], 'coordinator': values[2], 'hireDate': hire_date}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
     else:
-        conn.execute("""UPDATE hc_agents SET full_name=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", values + (agent_id,))
+        # Si es temporal, mantenemos los horarios base anteriores en hc_agents
+        if is_temp:
+            update_values = values[:9] + (
+                before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
+                before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
+            ) + values[16:]
+        else:
+            update_values = values
+            
+        conn.execute("""UPDATE hc_agents SET full_name=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", update_values + (agent_id,))
+        
+        if is_temp:
+            start = _validate_date(validity.get('startDate'), 'fecha inicio')
+            end = _validate_date(validity.get('endDate'), 'fecha fin')
+            if start > end: raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
+            reason = str(validity.get('reason') or 'Cambio temporal')[:500]
+            
+            conn.execute("""
+                INSERT INTO hc_schedule_overrides (agent_id, start_date, end_date, schedules_json, reason, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (agent_id, start, end, json.dumps(days), reason, now, actor))
+            
+            _log_history(conn, agent_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
+
         after = _fetch_agent(conn, agent_id)
-        if _diff_agents(before, after): _log_history(conn, agent_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
+        if not is_temp and _diff_agents(before, after): 
+            _log_history(conn, agent_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
+            
     return _fetch_agent(conn, agent_id)
 
 hc_bp = Blueprint('hc_manager', __name__)
@@ -539,14 +583,12 @@ def hc_metrics():
 
     conn = _conn()
     try:
-        # 1. Agentes activos actuales
         active = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' "
             "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
             [today] + args
         ).fetchone()[0]
 
-        # 2. Bajas del periodo
         term_query_parts = []
         term_args = []
         
@@ -580,13 +622,11 @@ def hc_metrics():
         termination_sql = "SELECT COUNT(DISTINCT agent_id) FROM (" + " UNION ".join(term_query_parts) + ")"
         terminations = conn.execute(termination_sql, term_args).fetchone()[0]
 
-        # 3. Altas
         new_hires = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where,
             [start, end] + args
         ).fetchone()[0]
 
-        # 4. Transferencias
         transfer_filters = []
         transfer_args = [start, end]
         if campaign:
@@ -610,7 +650,6 @@ def hc_metrics():
             transfer_sql += " AND " + " AND ".join(transfer_filters)
         transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
 
-        # 5. Distribución por campaña
         by_campaign = [dict(r) for r in conn.execute(
             "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
             "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
@@ -618,7 +657,6 @@ def hc_metrics():
             [today] + args
         ).fetchall()]
 
-        # 6. Cálculo de Rotación (Fórmula infalible)
         active_at_start = active + terminations - new_hires
         if active_at_start <= 0:
             active_at_start = active
