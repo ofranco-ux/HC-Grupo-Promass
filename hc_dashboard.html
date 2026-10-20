@@ -803,7 +803,9 @@ function setValidity(type) {
     document.getElementById('validityNote').style.display = type === 'permanent' ? 'none' : 'block';
 }
 
-function openAgentModal(agentId = null) {
+async function openAgentModal(agentId = null) {
+  await refreshFilters(); // Fuerza la actualización de las listas
+
   state.editingAgent = agentId;
   document.getElementById('agentEditId').value = agentId || '';
   const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
@@ -842,7 +844,7 @@ function openAgentModal(agentId = null) {
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
   fld('fldRole').disabled = isEdit;
-  fld('fldIsNewHire').disabled = isEdit; // También bloqueado para forzar el uso de Transferir
+  fld('fldIsNewHire').disabled = isEdit;
 
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
@@ -938,7 +940,9 @@ async function submitTermination() {
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
 
-function openTransferModal(agentId) {
+async function openTransferModal(agentId) {
+  await refreshFilters(); // Fuerza la actualización de las listas
+
   const a = state.agents.find(x => x.agentId === agentId);
   document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
   document.getElementById('transferAgentId').value = agentId;
@@ -959,145 +963,4 @@ async function submitTransfer() {
   const btn = document.getElementById('transferBtn'); btn.disabled = true;
   try {
     const id = document.getElementById('transferAgentId').value;
-    const toRole = document.getElementById('transferRole').value.trim() || 'Agente';
-    const toCampaign = document.getElementById('transferCampaign').value.trim();
-    const toChannel = document.getElementById('transferChannel').value;
-    const toSupervisor = document.getElementById('transferSupervisor').value.trim();
-    const toCoordinator = document.getElementById('transferCoordinator').value.trim();
-    const effectiveDate = document.getElementById('transferDate').value;
-    const reason = document.getElementById('transferReason').value.trim();
-    
-    if (!toCampaign) throw new Error('Indica la campaña destino.');
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { 
-        toRole, toCampaign, toChannel, toSupervisor, toCoordinator, effectiveDate, 
-        reason: reason || 'Transferencia registrada', actorMode: 'operaciones' 
-    });
-    
-    toast(`Transferencia registrada.`); closeTransferModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-async function reactivateAgent(agentId) {
-  if (!confirm(`¿Reactivar a ${agentId}?`)) return;
-  try {
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { reason: 'Reactivación desde tablero de Operaciones', actorMode: 'operaciones' });
-    toast(`Agente reactivado.`); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-/* =======================================================
-   NUEVOS MODALES: AUSENCIAS Y DIRECTORIO
-   ======================================================= */
-function openAbsenceModal() {
-  document.getElementById('absenceAgent').value = '';
-  document.getElementById('absenceType').value = 'vacation';
-  document.getElementById('absenceStart').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('absenceEnd').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('absenceReason').value = '';
-  document.getElementById('absenceModal').classList.remove('hidden');
-}
-function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
-
-async function submitAbsence() {
-  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
-  try {
-    const agentId = document.getElementById('absenceAgent').value;
-    const absenceType = document.getElementById('absenceType').value;
-    const startDate = document.getElementById('absenceStart').value;
-    const endDate = document.getElementById('absenceEnd').value;
-    const reason = document.getElementById('absenceReason').value.trim();
-    
-    if (!agentId || !startDate || !endDate) throw new Error('Completa todos los campos obligatorios.');
-    if (endDate < startDate) throw new Error('La fecha fin no puede ser menor a la fecha inicio.');
-    
-    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
-    toast(`Ausencia registrada.`); closeAbsenceModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function openPeopleModal() {
-  document.getElementById('peopleRole').value = 'supervisor';
-  document.getElementById('peopleName').value = '';
-  document.getElementById('peopleModal').classList.remove('hidden');
-}
-function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
-
-async function submitPerson() {
-  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
-  try {
-    const role = document.getElementById('peopleRole').value;
-    const name = document.getElementById('peopleName').value.trim();
-    if (!name) throw new Error('El nombre es obligatorio.');
-    
-    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
-    toast(`Persona registrada en el directorio.`); closePeopleModal(); await refreshFilters();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function downloadTemplate() { window.location.href = '/api/hc/template'; }
-function exportCsv() {
-  const start = document.getElementById('rosterEffectiveStart').value;
-  const end = document.getElementById('rosterEffectiveEnd').value;
-  let url = '/api/hc/export';
-  if (start && end) url += `?startDate=${start}&endDate=${end}`;
-  window.location.href = url;
-}
-
-async function importFile(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) { event.target.value = ''; return; }
-  
-  const btnSpan = document.querySelector('.roster-head-btn.gold');
-  const originalText = btnSpan.innerText;
-  btnSpan.innerText = 'Cargando...';
-
-  try {
-    const fd = new FormData(); 
-    fd.append('file', file); 
-    fd.append('actorMode', 'operaciones');
-    const r = await fetch('/api/hc/import', {method: 'POST', body: fd});
-    
-    let data;
-    try {
-        data = await r.json();
-    } catch (err) {
-        throw new Error('El servidor tardó demasiado en responder. Intenta con un archivo más pequeño.');
-    }
-    
-    if (!r.ok) throw new Error(data.error || 'Error al importar.');
-    
-    if (data.imported === 0) {
-        if (data.errors && data.errors.length > 0) {
-            const sample = data.errors.slice(0, 3).map(e => `Fila ${e.row}: ${e.error}`).join('\n');
-            alert(`No se pudo importar ningún agente.\n\nPrimeros errores encontrados:\n${sample}\n\nRevisa que las columnas coincidan con la plantilla.`);
-        } else {
-            alert('El archivo se leyó pero no contenía filas válidas o las columnas no coinciden con la plantilla.');
-        }
-    } else {
-        toast(`Importación exitosa: ${data.imported} agente(s) guardados.`);
-        if (data.errors && data.errors.length > 0) {
-            console.warn("Filas con observaciones:", data.errors);
-        }
-    }
-    
-    await refreshAll();
-  } catch (e) { 
-    toast(e.message, 'error'); 
-  } finally { 
-    event.target.value = ''; 
-    btnSpan.innerText = originalText;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-  document.getElementById('rosterEffectiveStart').value = firstDay.toISOString().slice(0, 10);
-  document.getElementById('rosterEffectiveEnd').value = today.toISOString().slice(0, 10);
-  
-  refreshAll();
-});
-</script>
-</body>
-</html>
+    const toRole = document.getElementById('transferRole').value.trim
