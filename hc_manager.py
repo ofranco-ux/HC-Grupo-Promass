@@ -405,6 +405,7 @@ def hc_list_agents():
     elif status_filter == 'Operativo':
         sql += " AND status='Activo' AND is_new_hire=0"
         
+    # CORRECCIÓN: Si hay fechas, mostramos a cualquiera que haya estado activo en ese lapso
     if start_date and end_date:
         sql += " AND (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date >= ?)"
         args.extend([end_date, start_date])
@@ -934,6 +935,14 @@ def hc_export_csv():
         start_date_str = request.args.get('startDate', '').strip()
         end_date_str = request.args.get('endDate', '').strip()
 
+        # Filtros
+        campaign_filter = request.args.get('campaign', '').strip()
+        channel_filter = request.args.get('channel', '').strip()
+        supervisor_filter = request.args.get('supervisor', '').strip()
+        coordinator_filter = request.args.get('coordinator', '').strip()
+        status_filter = request.args.get('status', '').strip()
+        search = request.args.get('search', '').strip().lower()
+
         conn = _conn()
         try:
             agents = [_row_to_agent(r) for r in conn.execute("SELECT * FROM hc_agents ORDER BY agent_id").fetchall()]
@@ -957,7 +966,16 @@ def hc_export_csv():
 
         if mode == 'base':
             writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+            
             for r in agents:
+                # Aplicar filtros en modo base
+                if campaign_filter and r['campaign'] != campaign_filter: continue
+                if channel_filter and r['channel'] != channel_filter: continue
+                if supervisor_filter and r['supervisor'] != supervisor_filter: continue
+                if coordinator_filter and r['coordinator'] != coordinator_filter: continue
+                if status_filter and r['displayStatus'] != status_filter: continue
+                if search and search not in f"{r['agentId']} {r['fullName']} {r['role']} {r['supervisor']} {r['coordinator']} {r['campaign']}".lower(): continue
+
                 s = r['schedules']
                 writer.writerow([
                     r['agentId'], r['fullName'], r['role'], r['supervisor'], r['coordinator'], 
@@ -1005,6 +1023,13 @@ def hc_export_csv():
                             hist_channel = t['to_channel']
                             hist_role = t['to_role']
 
+                    # Aplicar filtros basados en el estado histórico del día
+                    if campaign_filter and hist_campaign != campaign_filter: continue
+                    if channel_filter and hist_channel != channel_filter: continue
+                    if supervisor_filter and hist_supervisor != supervisor_filter: continue
+                    if coordinator_filter and hist_coordinator != coordinator_filter: continue
+                    if search and search not in f"{a['agentId']} {a['fullName']} {hist_role} {hist_supervisor} {hist_coordinator} {hist_campaign}".lower(): continue
+
                     hist_schedules = dict(a['schedules'])
                     for o in overrides_by_agent[a['agentId']]:
                         o_start = parse_db_date(o['start_date'])
@@ -1026,6 +1051,8 @@ def hc_export_csv():
                             if abs_start and abs_end and abs_start <= current_date <= abs_end and abs['status'] == 'approved':
                                 hist_status = 'Vacación' if abs['absence_type'] == 'vacation' else 'Incapacidad'
                                 break
+
+                    if status_filter and hist_status != status_filter: continue
 
                     writer.writerow([
                         date_str, a['agentId'], a['fullName'], hist_role, hist_supervisor, hist_coordinator,
