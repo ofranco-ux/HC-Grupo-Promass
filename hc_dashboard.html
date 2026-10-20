@@ -701,4 +701,446 @@ function parseTime(t) {
     return h * 60 + m;
 }
 
-function getScheduleCoverage(agent, day
+function getScheduleCoverage(agent, dayIndex) {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const prevDayIndex = (dayIndex + 6) % 7;
+    
+    let coverage = new Array(48).fill(0);
+    
+    const applyShift = (start, end) => {
+        for (let i = 0; i < 48; i++) {
+            let slotStart = i * 30;
+            let slotEnd = slotStart + 30;
+            if (Math.max(slotStart, start) < Math.min(slotEnd, end)) {
+                coverage[i] = 1;
+            }
+        }
+    };
+
+    // Turno de hoy
+    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
+    if (currentStr !== 'DD-DD') {
+        const [s, e] = currentStr.split('-');
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
+        
+        let sClamped = Math.max(0, start);
+        let eClamped = Math.min(1440, end);
+        if (sClamped < eClamped) applyShift(sClamped, eClamped);
+    }
+    
+    // Turno del día anterior (que puede arrastrar horas hacia hoy)
+    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
+    if (prevStr !== 'DD-DD') {
+        const [s, e] = prevStr.split('-');
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
+        
+        // Si el turno del día anterior terminó después de las 24:00, arrastra a hoy
+        if (end > 1440) {
+            let sCarry = 0;
+            let eCarry = end - 1440;
+            applyShift(sCarry, eCarry);
+        }
+    }
+    
+    return coverage;
+}
+
+function renderTimelineChart() {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const tabsContainer = document.getElementById('scheduleTabs');
+    const chartContainer = document.getElementById('scheduleChart');
+    
+    tabsContainer.innerHTML = days.map(d => `
+        <button class="schedule-tab ${state.chartDay === d ? 'active' : ''}" onclick="changeChartDay('${d}')">${d.slice(0,3)}</button>
+    `).join('');
+
+    const dayIndex = days.indexOf(state.chartDay);
+    // MEJORA: Solo contar a los que su rol sea 'Agente' para la cobertura operativa
+    const activeAgents = state.agents.filter(a => a.status === 'Activo' && a.role === 'Agente');
+
+    let totalCoverage = new Array(48).fill(0);
+    let agentsCovering = 0;
+
+    activeAgents.forEach(agent => {
+        const cov = getScheduleCoverage(agent, dayIndex);
+        let hasShift = false;
+        cov.forEach((val, i) => {
+            if (val) { totalCoverage[i]++; hasShift = true; }
+        });
+        if (hasShift) agentsCovering++;
+    });
+
+    const peak = Math.max(...totalCoverage);
+    let firstShift = totalCoverage.findIndex(v => v > 0);
+    let lastShift = -1;
+    for (let i = 47; i >= 0; i--) { if (totalCoverage[i] > 0) { lastShift = i; break; } }
+    
+    const formatTime = (slotIdx) => {
+        const h = Math.floor((slotIdx * 30) / 60);
+        const m = (slotIdx * 30) % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    };
+
+    document.getElementById('chartKpiAgents').textContent = agentsCovering;
+    document.getElementById('chartKpiPeak').textContent = `${peak} HC`;
+    document.getElementById('chartKpiStart').textContent = firstShift >= 0 ? formatTime(firstShift) : '—';
+    document.getElementById('chartKpiEnd').textContent = lastShift >= 0 ? formatTime(lastShift + 1) : '—';
+
+    chartContainer.innerHTML = totalCoverage.map((count, i) => {
+        const heightPercent = peak > 0 ? (count / peak) * 100 : 0;
+        const showLabel = i % 4 === 0;
+        return `
+            <div class="chart-bar-wrap" title="${formatTime(i)} - ${formatTime(i+1)}: ${count} agentes">
+                ${count > 0 ? `<span class="chart-bar-value">${count}</span>` : ''}
+                <div class="chart-bar" style="height: ${Math.max(2, heightPercent)}%; opacity: ${count === 0 ? '0.1' : '1'}"></div>
+                ${showLabel ? `<span class="chart-bar-label">${formatTime(i)}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function changeChartDay(day) {
+    state.chartDay = day;
+    renderTimelineChart();
+}
+
+/* ======================================================= */
+
+function escape(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
+
+function setValidity(type) {
+    document.getElementById('btnValidityPermanent').classList.toggle('active', type === 'permanent');
+    document.getElementById('btnValidityTemporary').classList.toggle('active', type === 'temporary');
+    document.getElementById('validityTemporarySection').classList.toggle('hidden', type === 'permanent');
+    document.getElementById('validityNote').style.display = type === 'permanent' ? 'none' : 'block';
+}
+
+async function openAgentModal(agentId = null) {
+  await refreshFilters(); // Fuerza la actualización de las listas
+
+  state.editingAgent = agentId;
+  document.getElementById('agentEditId').value = agentId || '';
+  const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
+  const fld = id => document.getElementById(id);
+
+  if (a) {
+    document.getElementById('agentModalTitle').textContent = `Editar · ${a.fullName || 'Sin nombre'} (${a.agentId})`;
+  } else {
+    document.getElementById('agentModalTitle').textContent = 'Nuevo agente';
+  }
+
+  fld('fldAgentId').value = a?.agentId || ''; 
+  fld('fldAgentId').disabled = false; 
+  
+  fld('fldFullName').value = a?.fullName || ''; 
+  
+  // Lógica segura para el SELECT de Puesto/Rol
+  const roleSelect = fld('fldRole');
+  const roleVal = a?.role || 'Agente';
+  if (!Array.from(roleSelect.options).some(opt => opt.value === roleVal)) {
+      const newOpt = document.createElement('option');
+      newOpt.value = roleVal;
+      newOpt.text = roleVal;
+      roleSelect.add(newOpt);
+  }
+  roleSelect.value = roleVal;
+
+  fld('fldIsNewHire').value = a?.isNewHire ? '1' : '0';
+  fld('fldSupervisor').value = a?.supervisor || '';
+  fld('fldCoordinator').value = a?.coordinator || ''; 
+  fld('fldCampaign').value = a?.campaign || '';
+  fld('fldChannel').value = a?.channel || 'Llamadas'; 
+  fld('fldStatus').value = a?.status || 'Activo';
+  fld('fldHireDate').value = (a?.hireDate || '').slice(0, 10);
+  
+  const sched = a?.schedules || {};
+  fld('fldLun').value = sched.Lunes || 'DD-DD'; fld('fldMar').value = sched.Martes || 'DD-DD';
+  fld('fldMie').value = sched['Miércoles'] || 'DD-DD'; fld('fldJue').value = sched.Jueves || 'DD-DD';
+  fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
+  fld('fldDom').value = sched.Domingo || 'DD-DD';
+  
+  const isEdit = !!agentId;
+  fld('fldCampaign').disabled = isEdit;
+  fld('fldChannel').disabled = isEdit;
+  fld('fldStatus').disabled = isEdit;
+  fld('fldHireDate').disabled = isEdit;
+  fld('fldSupervisor').disabled = isEdit;
+  fld('fldCoordinator').disabled = isEdit;
+  fld('fldRole').disabled = isEdit;
+  // fld('fldIsNewHire').disabled = isEdit; // Desbloqueado para permitir cambio de New Hire a Operativo
+
+  document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
+
+  if (isEdit) {
+    document.getElementById('validitySection').classList.remove('hidden');
+    setValidity('permanent');
+    fld('fldValidityStart').value = new Date().toISOString().slice(0, 10);
+    fld('fldValidityEnd').value = new Date().toISOString().slice(0, 10);
+    fld('fldValidityReason').value = '';
+  } else {
+    document.getElementById('validitySection').classList.add('hidden');
+  }
+
+  document.getElementById('agentModal').classList.remove('hidden');
+}
+
+function closeAgentModal() { document.getElementById('agentModal').classList.add('hidden'); state.editingAgent = null; }
+
+async function saveAgent(event) {
+  event.preventDefault();
+  const btn = document.getElementById('agentSaveBtn'); btn.disabled = true;
+  try {
+    const isTemp = document.getElementById('btnValidityTemporary').classList.contains('active');
+    
+    const payload = {
+      agentId: document.getElementById('fldAgentId').value.trim(),
+      fullName: document.getElementById('fldFullName').value.trim(),
+      role: document.getElementById('fldRole').value.trim() || 'Agente',
+      isNewHire: document.getElementById('fldIsNewHire').value === '1',
+      supervisor: document.getElementById('fldSupervisor').value.trim(),
+      coordinator: document.getElementById('fldCoordinator').value.trim(),
+      campaign: document.getElementById('fldCampaign').value.trim(),
+      channel: document.getElementById('fldChannel').value,
+      hireDate: document.getElementById('fldHireDate').value || null,
+      status: document.getElementById('fldStatus').value,
+      actorMode: 'operaciones',
+      schedules: {
+        'Lunes': document.getElementById('fldLun').value, 'Martes': document.getElementById('fldMar').value,
+        'Miércoles': document.getElementById('fldMie').value, 'Jueves': document.getElementById('fldJue').value,
+        'Viernes': document.getElementById('fldVie').value, 'Sábado': document.getElementById('fldSab').value,
+        'Domingo': document.getElementById('fldDom').value
+      },
+      validity: {
+        type: isTemp ? 'temporary' : 'permanent',
+        startDate: isTemp ? document.getElementById('fldValidityStart').value : null,
+        endDate: isTemp ? document.getElementById('fldValidityEnd').value : null,
+        reason: isTemp ? document.getElementById('fldValidityReason').value : null
+      }
+    };
+    
+    if (!payload.agentId) throw new Error('El ID del agente es obligatorio.');
+    if (!payload.campaign) throw new Error('La campaña es obligatoria.');
+    
+    if (isTemp) {
+      if (!payload.validity.startDate || !payload.validity.endDate) {
+        throw new Error('Debes indicar la fecha de inicio y fin para el cambio temporal.');
+      }
+      if (payload.validity.endDate < payload.validity.startDate) {
+        throw new Error('La fecha fin no puede ser anterior a la fecha inicio.');
+      }
+    }
+
+    if (state.editingAgent) { 
+      await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload); 
+      toast(isTemp ? `Cambio temporal registrado.` : `Agente actualizado.`); 
+    } else { 
+      await api.send('POST', '/api/hc/agents', payload); 
+      toast(`Agente creado.`); 
+    }
+    closeAgentModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openTerminateModal(agentId) {
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('terminateSub').textContent = `${a.agentId} · ${a.fullName || ''} · ${a.campaign || ''}`;
+  document.getElementById('terminateAgentId').value = agentId;
+  document.getElementById('terminateDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('terminateReason').value = '';
+  document.getElementById('terminateModal').classList.remove('hidden');
+}
+function closeTerminateModal() { document.getElementById('terminateModal').classList.add('hidden'); }
+
+async function submitTermination() {
+  const btn = document.getElementById('terminateBtn'); btn.disabled = true;
+  try {
+    const date = document.getElementById('terminateDate').value;
+    const reason = document.getElementById('terminateReason').value.trim();
+    const rehireable = document.getElementById('terminateRehireable').checked;
+    const id = document.getElementById('terminateAgentId').value;
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable, actorMode: 'operaciones' });
+    toast(`Baja registrada.`); closeTerminateModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+async function reactivateAgent(agentId) {
+  if (!confirm(`¿Estás seguro de reactivar al agente ${agentId}?`)) return;
+  try {
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { actorMode: 'operaciones' });
+    toast('Agente reactivado.');
+    await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// Lógica para ocultar campos operativos si es Administrativo
+function toggleTransferFields() {
+  const roleValue = document.getElementById('transferRole').value;
+  const opsFields = document.getElementById('transferOpsFields');
+  const campaignField = document.getElementById('transferCampaign');
+  
+  // Si el rol seleccionado es administrativo, ocultamos los campos operativos
+  const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(roleValue);
+  
+  if (isAdmin) {
+    opsFields.style.display = 'none';
+    campaignField.required = false;
+  } else {
+    opsFields.style.display = 'grid';
+    campaignField.required = true;
+  }
+}
+
+async function openTransferModal(agentId) {
+  await refreshFilters(); // Fuerza la actualización de las listas
+
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
+  document.getElementById('transferAgentId').value = agentId;
+  
+  // Seleccionar el rol actual del agente en el dropdown
+  const currentRole = a?.role || 'Agente';
+  const roleSelect = document.getElementById('transferRole');
+  
+  // Si el rol actual no está en las opciones (por ejemplo, un rol personalizado previo), lo agregamos temporalmente
+  if (!Array.from(roleSelect.options).some(opt => opt.value === currentRole)) {
+      const newOpt = document.createElement('option');
+      newOpt.value = currentRole;
+      newOpt.text = currentRole;
+      roleSelect.add(newOpt);
+  }
+  roleSelect.value = currentRole;
+
+  document.getElementById('transferCampaign').value = a?.campaign || '';
+  document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
+  document.getElementById('transferSupervisor').value = a?.supervisor || '';
+  document.getElementById('transferCoordinator').value = a?.coordinator || '';
+  
+  document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('transferReason').value = '';
+  
+  toggleTransferFields(); // Evaluar si se ocultan los campos o no
+  document.getElementById('transferModal').classList.remove('hidden');
+}
+function closeTransferModal() { document.getElementById('transferModal').classList.add('hidden'); }
+
+async function submitTransfer() {
+  const btn = document.getElementById('transferBtn'); btn.disabled = true;
+  try {
+    const id = document.getElementById('transferAgentId').value;
+    const toRole = document.getElementById('transferRole').value;
+    const toCampaign = document.getElementById('transferCampaign').value.trim();
+    const toChannel = document.getElementById('transferChannel').value;
+    const toSupervisor = document.getElementById('transferSupervisor').value.trim();
+    const toCoordinator = document.getElementById('transferCoordinator').value.trim();
+    const effectiveDate = document.getElementById('transferDate').value;
+    const reason = document.getElementById('transferReason').value.trim();
+
+    const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(toRole);
+
+    if (!toCampaign && !isAdmin) throw new Error('La campaña destino es obligatoria.');
+    if (!effectiveDate) throw new Error('La fecha efectiva es obligatoria.');
+
+    const payload = {
+        toRole, toCampaign, toChannel, toSupervisor, toCoordinator,
+        effectiveDate, reason, actorMode: 'operaciones'
+    };
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, payload);
+    toast('Transferencia registrada.');
+    closeTransferModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openAbsenceModal() { document.getElementById('absenceModal').classList.remove('hidden'); }
+function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
+
+async function submitAbsence() {
+  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
+  try {
+    const agentId = document.getElementById('absenceAgent').value;
+    const absenceType = document.getElementById('absenceType').value;
+    const startDate = document.getElementById('absenceStart').value;
+    const endDate = document.getElementById('absenceEnd').value;
+    const reason = document.getElementById('absenceReason').value.trim();
+
+    if (!agentId) throw new Error('Selecciona un agente.');
+    if (!startDate || !endDate) throw new Error('Las fechas son obligatorias.');
+
+    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
+    toast('Ausencia registrada.');
+    closeAbsenceModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openPeopleModal() { document.getElementById('peopleModal').classList.remove('hidden'); }
+function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
+
+async function submitPerson() {
+  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
+  try {
+    const role = document.getElementById('peopleRole').value;
+    const name = document.getElementById('peopleName').value.trim();
+    if (!name) throw new Error('El nombre es obligatorio.');
+
+    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
+    toast('Persona registrada.');
+    closePeopleModal(); await refreshFilters();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function downloadTemplate() { window.location.href = '/api/hc/template'; }
+
+// NUEVA FUNCIÓN: Exportar solo los horarios base/permanentes
+function exportBaseCsv() {
+  window.location.href = '/api/hc/export?mode=base';
+}
+
+// NUEVA FUNCIÓN: Exportar el roster histórico día por día
+function exportHistoricalCsv() {
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  
+  if (!start || !end) {
+    toast('Debes seleccionar fecha de inicio y fin para descargar el roster histórico.', 'error');
+    return;
+  }
+  
+  const params = new URLSearchParams();
+  params.set('mode', 'history');
+  params.set('startDate', start);
+  params.set('endDate', end);
+  
+  window.location.href = '/api/hc/export?' + params.toString();
+}
+
+async function importFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('actorMode', 'operaciones');
+  try {
+    const r = await fetch('/api/hc/import', { method: 'POST', body: formData });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al importar');
+    toast(`Importados: ${data.imported} registros.`);
+    if (data.errors && data.errors.length) {
+      console.warn('Errores de importación:', data.errors);
+      toast(`Hubo ${data.errors.length} errores. Revisa la consola.`, 'error');
+    }
+    await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+  event.target.value = ''; // reset
+}
+
+// Inicializar la carga de datos cuando la página esté lista
+document.addEventListener('DOMContentLoaded', () => {
+    refreshAll();
+});
+</script>
+</body>
+</html>
