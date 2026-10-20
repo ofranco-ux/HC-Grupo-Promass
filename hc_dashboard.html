@@ -8,105 +8,107 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
     :root {
-        --brand-blue: #0F3D63;
-        --brand-gold: #E4B729;
-        --brand-blue-light: #E6F0F7;
+        --promass-navy: #0A335B;
+        --promass-gold: #EAB52D;
+        --promass-navy-light: #F0F4F9;
+        --promass-gray: #F4F7F9;
     }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F4F7F9; margin: 0; padding: 20px; color: #2A4358; }
-    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 24px; border: 1px solid #C9D7E2; background: linear-gradient(180deg,#F8FBFD,#EEF3F7); box-shadow: 0 38px 90px -48px rgba(22,45,64,.7); overflow: hidden; min-height: calc(100vh - 40px); }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--promass-gray); margin: 0; padding: 20px; color: #2A4358; }
+    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 24px; border: 1px solid #D5DFE7; background: #FFF; box-shadow: 0 38px 90px -48px rgba(10,51,91,.4); overflow: hidden; min-height: calc(100vh - 40px); }
     
-    /* HEADER CON LOGO */
-    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 20px; color: #FFF; background: var(--brand-blue); }
+    /* HEADER CON LOGO REAL */
+    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 20px; background: #FFF; border-bottom: 3px solid var(--promass-navy); }
     .roster-head-left { display: flex; align-items: center; gap: 14px; }
-    .brand-logo { display: flex; align-items: center; gap: 12px; }
-    .brand-text { display: flex; flex-direction: column; }
-    .brand-sub { color: #FFF; font-size: 10px; font-weight: 800; letter-spacing: 2px; line-height: 1; margin-bottom: 2px; }
-    .brand-main { color: #FFF; font-size: 26px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
-    .brand-main span { color: var(--brand-gold); }
-    .brand-tagline { color: #A0C0D8; font-size: 8.5px; font-weight: 500; margin-top: 3px; letter-spacing: 0.3px; }
+    .brand-logo { display: flex; align-items: center; }
+    .brand-logo img { height: 54px; width: auto; object-fit: contain; }
     
-    .roster-head-actions { display: flex; align-items: center; gap: 7px; }
-    .roster-head-btn { min-height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
-    .roster-head-btn:hover { background: rgba(255,255,255,.15); }
-    .roster-head-btn.primary { background: var(--brand-gold); border-color: var(--brand-gold); color: var(--brand-blue); }
-    .roster-head-btn.primary:hover { background: #F2C73B; }
+    .roster-head-actions { display: flex; align-items: center; gap: 8px; }
+    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: var(--promass-navy); font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
+    .roster-head-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
+    .roster-head-btn.primary { background: var(--promass-navy); border-color: var(--promass-navy); color: #FFF; }
+    .roster-head-btn.primary:hover { background: #072544; }
+    .roster-head-btn.gold { background: var(--promass-gold); border-color: var(--promass-gold); color: var(--promass-navy); }
+    .roster-head-btn.gold:hover { background: #DCA421; }
     
     /* KPIS */
-    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding: 11px 14px 0; }
-    .roster-kpi { padding: 10px 11px; border-radius: 13px; border: 1px solid #D8E2EA; background: #FFF; min-width: 0; }
-    .roster-kpi-label { color: #8394A5; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-    .roster-kpi-value { margin-top: 4px; color: var(--brand-blue); font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .roster-kpi-detail { margin-top: 2px; color: #8796A5; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; padding: 16px 20px; background: var(--promass-navy-light); }
+    .roster-kpi { padding: 12px 14px; border-radius: 12px; border: 1px solid #D5DFE7; background: #FFF; min-width: 0; box-shadow: 0 4px 12px -6px rgba(10,51,91,0.05); }
+    .roster-kpi-label { color: #7A8FA3; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    .roster-kpi-value { margin-top: 4px; color: var(--promass-navy); font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-kpi-detail { margin-top: 2px; color: #93A4B5; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* TOOLBAR */
-    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 8px; padding: 12px 14px; align-items: end; }
-    .roster-input, .roster-select { width: 100%; min-height: 36px; border-radius: 10px; border: 1px solid #CFDBE5; background: #FFF; color: #2A4358; padding: 0 10px; font-size: 10px; font-weight: 600; outline: none; }
-    .roster-input:focus, .roster-select:focus { border-color: var(--brand-blue); box-shadow: 0 0 0 2px rgba(15,61,99,0.1); }
-    .roster-toolbar-btn { min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #CAD7E1; background: #F9FBFC; color: var(--brand-blue); font-size: 9px; font-weight: 800; cursor: pointer; white-space: nowrap; }
-    .roster-toolbar-btn:hover { background: #F0F4F8; }
+    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 8px; padding: 16px 20px 12px; align-items: end; }
+    .roster-input, .roster-select { width: 100%; min-height: 38px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #2A4358; padding: 0 10px; font-size: 10px; font-weight: 600; outline: none; transition: .15s; }
+    .roster-input:focus, .roster-select:focus { border-color: var(--promass-navy); box-shadow: 0 0 0 3px rgba(10,51,91,0.1); }
+    .roster-toolbar-btn { min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: var(--promass-navy); font-size: 9px; font-weight: 800; cursor: pointer; white-space: nowrap; transition: .15s; }
+    .roster-toolbar-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
 
-    .roster-content { padding: 0 14px 14px; flex: 1; display: flex; flex-direction: column; }
-    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; max-height: 500px; }
+    .roster-content { padding: 0 20px 20px; flex: 1; display: flex; flex-direction: column; }
+    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D5DFE7; border-radius: 12px; background: #FFF; max-height: 500px; }
     .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10px; min-width: 1200px; }
-    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 9px 8px; background: var(--brand-blue-light); color: var(--brand-blue); font-size: 8px; text-transform: uppercase; letter-spacing: .07em; text-align: left; border-bottom: 1px solid #C9D7E2; white-space: nowrap; }
-    .roster-table td { padding: 8px; color: #3F586E; border-bottom: 1px solid #EEF2F5; white-space: nowrap; vertical-align: middle; }
+    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 10px 8px; background: var(--promass-navy-light); color: var(--promass-navy); font-size: 8px; text-transform: uppercase; letter-spacing: .07em; text-align: left; border-bottom: 2px solid #D5DFE7; white-space: nowrap; }
+    .roster-table td { padding: 9px 8px; color: #3F586E; border-bottom: 1px solid #EEF2F5; white-space: nowrap; vertical-align: middle; }
     .roster-table tr:hover td { background: #F8FAFC; }
     
-    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--brand-blue); }
-    .roster-agent-name { font-weight: 700; color: var(--brand-blue); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 6px; align-items: center; border-radius: 7px; background: #EFF4F7; color: #526A7E; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 800; }
+    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: var(--promass-navy); }
+    .roster-agent-name { font-weight: 700; color: var(--promass-navy); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 6px; align-items: center; border-radius: 6px; background: #EFF4F7; color: #526A7E; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 800; }
     .roster-schedule.off { background: #F4F5F7; color: #9AA6B1; }
+    
     .roster-status { display: inline-flex; min-height: 22px; padding: 0 7px; align-items: center; border-radius: 999px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
     .roster-status.active { background: #DEF1EC; color: #27766C; }
     .roster-status.inactive { background: #F1E4E7; color: #A05263; }
     .roster-status.vacation { background: #E9F1FB; color: #3B5998; }
     .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
-    .roster-edit-btn { min-height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid #D0DCE5; color: #49647A; background: #FFF; font-size: 8px; font-weight: 800; cursor: pointer; }
-    .roster-edit-btn:hover { border-color: var(--brand-blue); color: var(--brand-blue); }
+    
+    .roster-edit-btn { min-height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid #D5DFE7; color: var(--promass-navy); background: #FFF; font-size: 8px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .roster-edit-btn:hover { background: var(--promass-navy-light); border-color: var(--promass-navy); }
 
-    .download-block { margin: 0 14px 12px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; color: #334155; }
-    .download-block input[type="date"] { min-height: 32px; padding: 0 8px; font-size: 11px; }
+    .download-block { margin: 0 20px 14px; padding: 14px; border: 1px solid #D5DFE7; border-radius: 12px; background: var(--promass-navy-light); color: var(--promass-navy); }
+    .download-block input[type="date"] { min-height: 34px; padding: 0 8px; font-size: 11px; border-color: #D5DFE7; }
 
     /* Cronograma */
-    .schedule-section { margin-top: 14px; padding: 12px; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; }
-    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .schedule-title { font-size: 12px; font-weight: 800; color: var(--brand-blue); }
+    .schedule-section { margin-top: 14px; padding: 16px; border: 1px solid #D5DFE7; border-radius: 14px; background: #FFF; }
+    .schedule-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .schedule-title { font-size: 13px; font-weight: 800; color: var(--promass-navy); }
     .schedule-tabs { display: flex; gap: 4px; }
-    .schedule-tab { padding: 6px 10px; border-radius: 8px; border: 1px solid #D4DFE7; background: #F8FAFC; color: #667C90; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
-    .schedule-tab.active { border-color: var(--brand-gold); background: #FFFBF0; color: var(--brand-blue); }
-    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
-    .schedule-metric { padding: 10px; border-radius: 10px; border: 1px solid #E0E7ED; background: #F8FAFB; }
+    .schedule-tab { padding: 6px 12px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #7A8FA3; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .schedule-tab.active { border-color: var(--promass-navy); background: var(--promass-navy); color: #FFF; }
+    .schedule-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+    .schedule-metric { padding: 12px; border-radius: 10px; border: 1px solid #E0E7ED; background: #F8FAFB; }
     .schedule-metric-label { font-size: 8px; font-weight: 800; color: #8998A6; text-transform: uppercase; }
-    .schedule-metric-value { margin-top: 4px; font-size: 14px; font-weight: 800; color: var(--brand-blue); font-family: 'JetBrains Mono', monospace; }
-    .schedule-chart-container { display: flex; align-items: flex-end; height: 160px; gap: 2px; padding: 16px 10px 24px; border-radius: 10px; border: 1px solid #E2E8ED; background: linear-gradient(to top, rgba(15,61,99,.05) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
+    .schedule-metric-value { margin-top: 4px; font-size: 15px; font-weight: 800; color: var(--promass-navy); font-family: 'JetBrains Mono', monospace; }
+    .schedule-chart-container { display: flex; align-items: flex-end; height: 170px; gap: 3px; padding: 16px 10px 24px; border-radius: 10px; border: 1px solid #E2E8ED; background: linear-gradient(to top, rgba(10,51,91,.04) 1px, transparent 1px); background-size: 100% 40px; position: relative; }
     .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
-    .chart-bar { width: 100%; max-width: 18px; background: var(--brand-blue); border-radius: 4px 4px 0 0; transition: height 0.3s ease; min-height: 2px; }
+    .chart-bar { width: 100%; max-width: 18px; background: var(--promass-navy); border-radius: 3px 3px 0 0; transition: height 0.3s ease; min-height: 2px; }
     .chart-bar-label { position: absolute; bottom: -20px; font-size: 7px; font-family: 'JetBrains Mono', monospace; color: #8A99A7; }
-    .chart-bar-value { position: absolute; font-size: 7px; font-weight: 800; color: var(--brand-blue); margin-bottom: 2px; }
+    .chart-bar-value { position: absolute; font-size: 7px; font-weight: 800; color: var(--promass-navy); margin-bottom: 2px; }
 
     /* Modales */
-    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20,40,56,.42); backdrop-filter: blur(4px); }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10,51,91,.4); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
-    .modal { width: 100%; max-width: 580px; max-height: calc(100vh - 40px); background: #F7FAFC; border-radius: 18px; border: 1px solid #C9D7E2; box-shadow: 0 28px 60px -30px rgba(20,42,62,.55); overflow: hidden; display: flex; flex-direction: column; }
+    .modal { width: 100%; max-width: 580px; max-height: calc(100vh - 40px); background: #FFF; border-radius: 16px; border: 1px solid #D5DFE7; box-shadow: 0 28px 60px -30px rgba(10,51,91,.4); overflow: hidden; display: flex; flex-direction: column; }
     .modal-lg { max-width: 800px; }
-    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid #DDE5EE; background: #FFF; }
-    .modal-title { font-size: 15px; font-weight: 800; color: var(--brand-blue); margin: 0; }
-    .modal-sub { font-size: 10px; color: #75879B; margin: 3px 0 0; }
-    .modal-close { width: 30px; height: 30px; border-radius: 9px; border: 1px solid #CED9E4; background: #fff; color: #75879B; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
-    .modal-body { padding: 16px 18px; overflow-y: auto; }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid #DDE5EE; background: #F1F5F8; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #D5DFE7; background: var(--promass-navy-light); }
+    .modal-title { font-size: 16px; font-weight: 800; color: var(--promass-navy); margin: 0; }
+    .modal-sub { font-size: 10px; color: #5A738C; margin: 3px 0 0; }
+    .modal-close { width: 30px; height: 30px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #5A738C; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+    .modal-body { padding: 20px; overflow-y: auto; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid #D5DFE7; background: var(--promass-navy-light); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .field-full { grid-column: 1 / -1; }
     .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label { font-size: 9px; font-weight: 800; color: #75879B; text-transform: uppercase; }
-    .form-section-title { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: #75879B; margin: 12px 0 8px; padding-top: 8px; border-top: 1px solid #DDE5EE; }
+    .field label { font-size: 9px; font-weight: 800; color: #5A738C; text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-section-title { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: var(--promass-navy); margin: 16px 0 10px; padding-top: 10px; border-top: 1px solid #D5DFE7; }
     .form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
     
-    .btn-save { min-height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid transparent; background: var(--brand-blue); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
-    .btn-save:hover { background: #0A2E4F; }
-    .btn-cancel { min-height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid #CED9E4; background: #fff; color: #41536A; font-size: 10px; font-weight: 800; cursor: pointer; }
+    .btn-save { min-height: 38px; padding: 0 20px; border-radius: 8px; border: 1px solid transparent; background: var(--promass-navy); color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .btn-save:hover { background: #072544; }
+    .btn-cancel { min-height: 38px; padding: 0 20px; border-radius: 8px; border: 1px solid #D5DFE7; background: #FFF; color: #5A738C; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; }
+    .btn-cancel:hover { background: #F4F7F9; }
 
-    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 11px 14px; border-radius: 11px; color: #fff; font-size: 11px; font-weight: 700; background: var(--brand-blue); border: 1px solid #A0C0D8; box-shadow: 0 16px 36px -22px rgba(24,49,68,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
+    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 12px 16px; border-radius: 10px; color: #FFF; font-size: 11px; font-weight: 700; background: var(--promass-navy); border: 1px solid #1A4973; box-shadow: 0 16px 36px -22px rgba(10,51,91,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
     .toast.is-visible { opacity: 1; transform: translateY(0); }
     .toast.is-error { background: #8A4052; border-color: #A95468; }
 
@@ -114,7 +116,6 @@
         .roster-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .roster-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .schedule-metrics { grid-template-columns: repeat(2, 1fr); }
-        .brand-tagline { display: none; }
     }
     @media (max-width: 640px) {
         body { padding: 6px; }
@@ -123,40 +124,34 @@
         .form-grid { grid-template-columns: 1fr; }
         .roster-head { flex-direction: column; align-items: stretch; gap: 10px; }
         .roster-head-actions { justify-content: flex-end; }
+        .brand-logo img { height: 40px; }
     }
 </style>
 </head>
 <body>
 
 <div class="roster-shell">
+    <!-- HEADER CORPORATIVO -->
     <div class="roster-head">
         <div class="roster-head-left">
             <div class="brand-logo">
-                <!-- Logo SVG Recreado -->
-                <svg viewBox="0 0 100 100" width="46" height="46" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M 20 35 C 20 15, 80 15, 80 45 C 80 65, 45 65, 45 80" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-                    <path d="M 80 65 C 80 85, 20 85, 20 55 C 20 35, 55 35, 55 20" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-                    <path d="M 80 45 L 100 45 L 90 58 Z" fill="#E4B729"/>
-                    <path d="M 20 55 L 0 55 L 10 42 Z" fill="#E4B729"/>
-                    <path d="M 45 10 L 60 10 L 52.5 0 Z" fill="#E4B729"/>
-                </svg>
-                <div class="brand-text">
-                    <div class="brand-sub">GRUPO</div>
-                    <div class="brand-main">PRO<span>MASS</span></div>
-                    <div class="brand-tagline">Acelerando el potencial de tu negocio</div>
-                </div>
+                <!-- Asegúrate de haber subido logo.png a GitHub -->
+                <img src="logo.png" alt="Grupo Promass Logo" onerror="this.outerHTML='<h2 style=\'color:#0A335B; font-weight:900; font-size:22px; margin:0;\'>GRUPO <span style=\'color:#EAB52D;\'>PROMASS</span></h2>'">
             </div>
         </div>
         <div class="roster-head-actions">
-            <span style="color:#83D5A6;font-size:8px;font-weight:800;margin-right:10px;">● Sincronizado</span>
+            <span style="color:#27766C;font-size:8px;font-weight:800;margin-right:10px;display:flex;align-items:center;gap:4px;">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#27766C;"></span> Sincronizado
+            </span>
             <button class="roster-head-btn" onclick="downloadTemplate()"><span>Plantilla</span></button>
-            <button class="roster-head-btn primary" onclick="document.getElementById('fileInput').click()" title="Carga masiva"><span>Carga Excel</span></button>
+            <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()" title="Carga masiva"><span>Carga Excel</span></button>
             <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
             <button class="roster-head-btn" onclick="exportCsv()"><span>Exportar</span></button>
             <button class="roster-head-btn primary" onclick="openAgentModal()"><span>+ Agente</span></button>
         </div>
     </div>
 
+    <!-- KPIS -->
     <div class="roster-kpis">
         <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
@@ -166,6 +161,7 @@
         <div class="roster-kpi"><div class="roster-kpi-label">Attrition</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail">Bajas / HC inicial</div></div>
     </div>
 
+    <!-- FILTROS -->
     <div class="roster-toolbar">
         <select id="filterCampaign" class="roster-select" onchange="loadAgents()"><option value="">Todas las campañas</option></select>
         <select id="filterSupervisor" class="roster-select" onchange="loadAgents()"><option value="">Todos los supervisores</option></select>
@@ -182,12 +178,12 @@
     </div>
 
     <div class="download-block">
-        <strong style="font-size:11px;">Descargar roster por fechas</strong>
-        <p style="font-size:10px;margin:4px 0 8px;">Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
+        <strong style="font-size:11px; color:var(--promass-navy);">Descargar roster por fechas</strong>
+        <p style="font-size:10px;margin:4px 0 8px; color:#5A738C;">Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <label style="font-size:10px;font-weight:800;color:#8394A5;">Desde</label>
+            <label style="font-size:10px;font-weight:800;color:var(--promass-navy);">Desde</label>
             <input id="rosterEffectiveStart" type="date" class="roster-input" style="width:130px;">
-            <label style="font-size:10px;font-weight:800;color:#8394A5;">Hasta</label>
+            <label style="font-size:10px;font-weight:800;color:var(--promass-navy);">Hasta</label>
             <input id="rosterEffectiveEnd" type="date" class="roster-input" style="width:130px;">
             <button type="button" class="roster-toolbar-btn" onclick="exportCsv()">Descargar roster efectivo CSV</button>
         </div>
@@ -459,9 +455,9 @@ function renderAgents() {
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
           ${a.terminationDate
-              ? `<button class="roster-edit-btn" style="color:#2D9489" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
+              ? `<button class="roster-edit-btn" style="color:#27766C" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
               : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
-                 <button class="roster-edit-btn" style="color:#C95870" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
+                 <button class="roster-edit-btn" style="color:#A05263" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
         </td>
       </tr>`;
   }).join('');
