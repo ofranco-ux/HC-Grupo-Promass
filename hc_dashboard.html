@@ -42,7 +42,7 @@
     .roster-head-btn.secondary:hover { background: rgba(255,255,255,0.1); color: #FFF; }
     
     /* KPIS */
-    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
+    .roster-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
     .roster-kpi { padding: 16px; border-radius: 12px; border: 1px solid #CBD5E1; background: var(--surface); min-width: 0; box-shadow: 0 4px 6px -4px rgba(0,0,0,0.05); }
     .roster-kpi.is-primary { background: var(--navy); border-color: var(--navy); }
     .roster-kpi.is-primary .roster-kpi-label { color: #9BB5D6; }
@@ -74,11 +74,12 @@
     .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 8px; align-items: center; border-radius: 6px; background: #F1F5F9; color: #475569; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; }
     .roster-schedule.off { background: #F8FAFC; color: #94A3B8; }
     
-    .roster-status { display: inline-flex; min-height: 22px; padding: 0 8px; align-items: center; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .roster-status { display: inline-flex; min-height: 22px; padding: 0 8px; align-items: center; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-right: 4px; }
     .roster-status.active { background: #DCFCE7; color: #166534; }
     .roster-status.inactive { background: #FEE2E2; color: #991B1B; }
     .roster-status.vacation { background: #DBEAFE; color: #1E40AF; }
     .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
+    .roster-status.new-hire { background: #F3E8FF; color: #6B21A8; }
     
     .roster-edit-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #CBD5E1; color: var(--navy); background: #FFF; font-size: 9px; font-weight: 800; cursor: pointer; transition: .15s; }
     .roster-edit-btn:hover { background: var(--navy-light); border-color: var(--navy); }
@@ -147,6 +148,9 @@
     .toast.is-visible { opacity: 1; transform: translateY(0); }
     .toast.is-error { background: #991B1B; border-left-color: #FCA5A5; }
 
+    @media (max-width: 1280px) {
+        .roster-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
     @media (max-width: 1050px) {
         .roster-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .roster-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -196,6 +200,7 @@
     <!-- KPIS -->
     <div class="roster-kpis">
         <div class="roster-kpi is-primary"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Nuevos Ingresos</div><div class="roster-kpi-value" id="kpiNewHires">—</div><div class="roster-kpi-detail">En entrenamiento</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
@@ -212,6 +217,7 @@
         <select id="filterStatus" class="roster-select" onchange="updateDashboard()">
             <option value="">Todos los estados</option>
             <option value="Activo">Activo</option>
+            <option value="New Hire">New Hire</option>
             <option value="Baja">Baja</option>
             <option value="Vacación">Vacación</option>
             <option value="Incapacidad">Incapacidad</option>
@@ -297,7 +303,13 @@
                 <option value="Formador">
             </datalist>
           </div>
-          <div class="field"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
+          <div class="field">
+            <label>Tipo de Agente</label>
+            <select id="fldIsNewHire" class="roster-select">
+                <option value="0">Operativo</option>
+                <option value="1">New Hire (En entrenamiento)</option>
+            </select>
+          </div>
           
           <div class="field">
             <label>Supervisor</label>
@@ -320,6 +332,7 @@
           </div>
 
           <div class="field hidden" id="wrapFldStatus"><label>Estado</label><select id="fldStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
+          <div class="field" id="wrapFldHireDate"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
         </div>
 
         <div class="form-grid" style="margin-top:16px;">
@@ -576,6 +589,7 @@ async function refreshMetrics() {
   try {
     const m = await api.get('/api/hc/metrics?' + params.toString());
     document.getElementById('kpiActive').textContent = m.active;
+    document.getElementById('kpiNewHires').textContent = m.activeNewHires;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
     
     const uniqueSupervisors = new Set(state.agents.map(a => (a.supervisor || '').trim()).filter(Boolean));
@@ -625,6 +639,7 @@ function renderAgents() {
   body.innerHTML = state.agents.map(a => {
     const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
     let statusBadge = isBaja ? '<span class="roster-status inactive">Baja</span>' : '<span class="roster-status active">Activo</span>';
+    let nhBadge = a.isNewHire ? '<span class="roster-status new-hire">New Hire</span>' : '';
 
     const selectedStatus = document.getElementById('filterStatus').value;
     if (selectedStatus === 'Vacación') statusBadge = '<span class="roster-status vacation">Vacación</span>';
@@ -649,7 +664,7 @@ function renderAgents() {
         <td>${escape(a.channel)}</td>
         ${dayChip('Lunes')}${dayChip('Martes')}${dayChip('Miércoles')}${dayChip('Jueves')}
         ${dayChip('Viernes')}${dayChip('Sábado')}${dayChip('Domingo')}
-        <td>${statusBadge}</td>
+        <td>${statusBadge}${nhBadge}</td>
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
           ${a.terminationDate || a.status === 'Baja'
@@ -805,6 +820,7 @@ function openAgentModal(agentId = null) {
   
   fld('fldFullName').value = a?.fullName || ''; 
   fld('fldRole').value = a?.role || 'Agente';
+  fld('fldIsNewHire').value = a?.isNewHire ? '1' : '0';
   fld('fldSupervisor').value = a?.supervisor || '';
   fld('fldCoordinator').value = a?.coordinator || ''; 
   fld('fldCampaign').value = a?.campaign || '';
@@ -826,6 +842,7 @@ function openAgentModal(agentId = null) {
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
   fld('fldRole').disabled = isEdit;
+  fld('fldIsNewHire').disabled = isEdit; // También bloqueado para forzar el uso de Transferir
 
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
@@ -854,6 +871,7 @@ async function saveAgent(event) {
       agentId: document.getElementById('fldAgentId').value.trim(),
       fullName: document.getElementById('fldFullName').value.trim(),
       role: document.getElementById('fldRole').value.trim() || 'Agente',
+      isNewHire: document.getElementById('fldIsNewHire').value === '1',
       supervisor: document.getElementById('fldSupervisor').value.trim(),
       coordinator: document.getElementById('fldCoordinator').value.trim(),
       campaign: document.getElementById('fldCampaign').value.trim(),
@@ -978,108 +996,4 @@ function openAbsenceModal() {
   document.getElementById('absenceReason').value = '';
   document.getElementById('absenceModal').classList.remove('hidden');
 }
-function closeAbsenceModal() { document.getElementById('absenceModal').classList.add('hidden'); }
-
-async function submitAbsence() {
-  const btn = document.getElementById('absenceBtn'); btn.disabled = true;
-  try {
-    const agentId = document.getElementById('absenceAgent').value;
-    const absenceType = document.getElementById('absenceType').value;
-    const startDate = document.getElementById('absenceStart').value;
-    const endDate = document.getElementById('absenceEnd').value;
-    const reason = document.getElementById('absenceReason').value.trim();
-    
-    if (!agentId || !startDate || !endDate) throw new Error('Completa todos los campos obligatorios.');
-    if (endDate < startDate) throw new Error('La fecha fin no puede ser menor a la fecha inicio.');
-    
-    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
-    toast(`Ausencia registrada.`); closeAbsenceModal(); await refreshAll();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function openPeopleModal() {
-  document.getElementById('peopleRole').value = 'supervisor';
-  document.getElementById('peopleName').value = '';
-  document.getElementById('peopleModal').classList.remove('hidden');
-}
-function closePeopleModal() { document.getElementById('peopleModal').classList.add('hidden'); }
-
-async function submitPerson() {
-  const btn = document.getElementById('peopleBtn'); btn.disabled = true;
-  try {
-    const role = document.getElementById('peopleRole').value;
-    const name = document.getElementById('peopleName').value.trim();
-    if (!name) throw new Error('El nombre es obligatorio.');
-    
-    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
-    toast(`Persona registrada en el directorio.`); closePeopleModal(); await refreshFilters();
-  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
-}
-
-function downloadTemplate() { window.location.href = '/api/hc/template'; }
-function exportCsv() {
-  const start = document.getElementById('rosterEffectiveStart').value;
-  const end = document.getElementById('rosterEffectiveEnd').value;
-  let url = '/api/hc/export';
-  if (start && end) url += `?startDate=${start}&endDate=${end}`;
-  window.location.href = url;
-}
-
-async function importFile(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) { event.target.value = ''; return; }
-  
-  const btnSpan = document.querySelector('.roster-head-btn.gold');
-  const originalText = btnSpan.innerText;
-  btnSpan.innerText = 'Cargando...';
-
-  try {
-    const fd = new FormData(); 
-    fd.append('file', file); 
-    fd.append('actorMode', 'operaciones');
-    const r = await fetch('/api/hc/import', {method: 'POST', body: fd});
-    
-    let data;
-    try {
-        data = await r.json();
-    } catch (err) {
-        throw new Error('El servidor tardó demasiado en responder. Intenta con un archivo más pequeño.');
-    }
-    
-    if (!r.ok) throw new Error(data.error || 'Error al importar.');
-    
-    if (data.imported === 0) {
-        if (data.errors && data.errors.length > 0) {
-            const sample = data.errors.slice(0, 3).map(e => `Fila ${e.row}: ${e.error}`).join('\n');
-            alert(`No se pudo importar ningún agente.\n\nPrimeros errores encontrados:\n${sample}\n\nRevisa que las columnas coincidan con la plantilla.`);
-        } else {
-            alert('El archivo se leyó pero no contenía filas válidas o las columnas no coinciden con la plantilla.');
-        }
-    } else {
-        toast(`Importación exitosa: ${data.imported} agente(s) guardados.`);
-        if (data.errors && data.errors.length > 0) {
-            console.warn("Filas con observaciones:", data.errors);
-        }
-    }
-    
-    await refreshAll();
-  } catch (e) { 
-    toast(e.message, 'error'); 
-  } finally { 
-    event.target.value = ''; 
-    btnSpan.innerText = originalText;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-  document.getElementById('rosterEffectiveStart').value = firstDay.toISOString().slice(0, 10);
-  document.getElementById('rosterEffectiveEnd').value = today.toISOString().slice(0, 10);
-  
-  refreshAll();
-});
-</script>
-</body>
-</html>
+function closeAbsenceModal() { document.getElementById('absenceModal').class
