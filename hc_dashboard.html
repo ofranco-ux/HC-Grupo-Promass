@@ -110,7 +110,7 @@
     .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15,23,42,.6); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
     .modal { width: 100%; max-width: 650px; max-height: calc(100vh - 40px); background: #F8FAFC; border-radius: 16px; border: 1px solid #E2E8F0; box-shadow: 0 28px 60px -30px rgba(10,51,91,.5); overflow: hidden; display: flex; flex-direction: column; }
-    .modal-lg { max-width: 900px; }
+    .modal-lg { max-width: 950px; }
     .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 20px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E8F0; }
     .modal-title { font-size: 20px; font-weight: 800; color: #0F172A; margin: 0; }
     .modal-sub { font-size: 12px; color: #64748B; margin: 4px 0 0; }
@@ -148,6 +148,17 @@
     .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 14px 18px; border-radius: 10px; color: #FFF; font-size: 12px; font-weight: 700; background: var(--navy); border-left: 4px solid var(--gold); box-shadow: 0 16px 36px -22px rgba(10,51,91,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
     .toast.is-visible { opacity: 1; transform: translateY(0); }
     .toast.is-error { background: #991B1B; border-left-color: #FCA5A5; }
+
+    /* Estilos específicos de la bitácora */
+    .badge-log { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .badge-log.create { background: #DCFCE7; color: #166534; }
+    .badge-log.update { background: #DBEAFE; color: #1E40AF; }
+    .badge-log.delete { background: #FEE2E2; color: #991B1B; }
+    .badge-log.move { background: #FEF3C7; color: #92400E; }
+    .badge-log.time { background: #F3E8FF; color: #6B21A8; }
+    .log-detail-list { margin: 0; padding-left: 12px; font-size: 11px; line-height: 1.6; color: #475569; white-space: normal; }
+    .log-old { color: #991B1B; text-decoration: line-through; font-weight: 600; }
+    .log-new { color: #166534; font-weight: 700; }
 
     @media (max-width: 1280px) {
         .roster-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -512,7 +523,7 @@
   </div>
 </div>
 
-<!-- Modal: Bitácora (Historial) -->
+<!-- Modal: Bitácora Global -->
 <div id="historyModal" class="modal-backdrop hidden">
   <div class="modal modal-lg">
     <div class="modal-header">
@@ -521,15 +532,15 @@
     </div>
     <div class="modal-body">
       <div id="historyLoading" style="text-align:center; padding: 20px; color: #64748B; font-weight: bold;">Cargando bitácora...</div>
-      <div class="roster-agents-scroll" id="historyContent" style="max-height: 500px; display: none;">
+      <div class="roster-agents-scroll" id="historyContent" style="max-height: 600px; display: none;">
         <table class="roster-table">
           <thead>
             <tr>
-              <th>Fecha / Hora</th>
-              <th>Agente</th>
-              <th>Tipo de Cambio</th>
-              <th>Detalles</th>
-              <th>Usuario</th>
+              <th style="width: 120px;">Fecha / Hora</th>
+              <th style="width: 200px;">Agente</th>
+              <th style="width: 150px;">Tipo de Cambio</th>
+              <th>Detalles del Cambio</th>
+              <th style="width: 100px;">Usuario</th>
             </tr>
           </thead>
           <tbody id="historyTableBody"></tbody>
@@ -712,7 +723,6 @@ function renderAgents() {
         <td>${statusBadge}${nhBadge}</td>
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
-          <button class="roster-edit-btn" onclick="openHistoryModal('${escapeAttr(a.agentId)}')">Historial</button>
           ${a.terminationDate || a.status === 'Baja'
               ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
               : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
@@ -901,7 +911,6 @@ async function openAgentModal(agentId = null) {
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
   fld('fldRole').disabled = isEdit;
-  // fld('fldIsNewHire').disabled = isEdit; // Desbloqueado para permitir cambio de New Hire a Operativo
 
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
@@ -1212,81 +1221,137 @@ async function importFile(event) {
   event.target.value = ''; // reset
 }
 
-// NUEVA LÓGICA: Modal de Bitácora
-async function openHistoryModal(agentId = null) {
+// ==========================================
+// LÓGICA DETALLADA DE LA BITÁCORA GLOBAL
+// ==========================================
+async function openHistoryModal() {
   document.getElementById('historyModal').classList.remove('hidden');
   document.getElementById('historyLoading').style.display = 'block';
   document.getElementById('historyContent').style.display = 'none';
   document.getElementById('historyTableBody').innerHTML = '';
 
-  if (agentId) {
-    const a = state.agents.find(x => x.agentId === agentId);
-    document.getElementById('historyTitle').textContent = `Historial del Agente`;
-    document.getElementById('historySub').textContent = `${a.agentId} · ${a.fullName || ''}`;
-  } else {
-    document.getElementById('historyTitle').textContent = `Bitácora Global`;
-    document.getElementById('historySub').textContent = `Últimos cambios registrados en el sistema`;
-  }
-
   try {
-    const url = agentId ? `/api/hc/agents/${encodeURIComponent(agentId)}/history` : '/api/hc/history?limit=200';
-    const data = await api.get(url);
+    const data = await api.get('/api/hc/history?limit=200');
     const history = data.history || [];
 
     if (!history.length) {
-      document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#64748B;">No hay registros de cambios.</td></tr>';
+      document.getElementById('historyTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#64748B;">No hay registros de cambios en el sistema.</td></tr>';
     } else {
       document.getElementById('historyTableBody').innerHTML = history.map(h => {
         
-        // Traducir tipos de cambio
-        let typeLabel = h.changeType;
-        if (h.changeType === 'agent_created') typeLabel = 'Alta de Agente';
-        if (h.changeType === 'agent_updated') typeLabel = 'Actualización de Datos';
-        if (h.changeType === 'agent_terminated') typeLabel = 'Baja';
-        if (h.changeType === 'agent_reactivated') typeLabel = 'Reactivación';
-        if (h.changeType === 'agent_transferred') typeLabel = 'Transferencia / Cambio';
-        if (h.changeType === 'temporary_schedule_applied') typeLabel = 'Horario Temporal';
-        if (h.changeType === 'vacation_created') typeLabel = 'Registro de Vacaciones';
-        if (h.changeType === 'incapacity_created') typeLabel = 'Registro de Incapacidad';
-
         // Formatear fecha
         let dt = new Date(h.changedAt);
         let dateStr = dt.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
         let timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
-        // Detalles
-        let details = '';
-        if (h.before && h.after) {
-           let changes = [];
-           if (h.before.campaign !== h.after.campaign) changes.push(`Campaña: ${h.before.campaign || '—'} ➔ ${h.after.campaign || '—'}`);
-           if (h.before.supervisor !== h.after.supervisor) changes.push(`Supervisor: ${h.before.supervisor || '—'} ➔ ${h.after.supervisor || '—'}`);
-           if (h.before.coordinator !== h.after.coordinator) changes.push(`Coordinador: ${h.before.coordinator || '—'} ➔ ${h.after.coordinator || '—'}`);
-           if (h.before.role !== h.after.role) changes.push(`Puesto: ${h.before.role || '—'} ➔ ${h.after.role || '—'}`);
-           if (h.before.status !== h.after.status) changes.push(`Estado: ${h.before.status || '—'} ➔ ${h.after.status || '—'}`);
-           
-           if (h.changeType === 'temporary_schedule_applied') {
-               changes.push(`Horario temporal del ${h.after.startDate} al ${h.after.endDate}`);
-           }
-           details = changes.length ? changes.join('<br>') : 'Se actualizaron campos generales';
-        } else if (h.changeType === 'agent_created') {
-           details = `Nuevo registro en la campaña ${h.after.campaign || '—'}`;
+        // Nombre del Agente (buscando en el JSON si ya no existe en la DB actual)
+        let agentName = '';
+        if (h.after && h.after.fullName) agentName = h.after.fullName;
+        else if (h.before && h.before.fullName) agentName = h.before.fullName;
+        else {
+            const currentAgent = state.agents.find(a => a.agentId === h.agentId);
+            if (currentAgent) agentName = currentAgent.fullName;
+        }
+
+        // Generar Etiquetas de Tipo
+        let badgeClass = 'update';
+        let typeLabel = 'Actualización';
+        
+        if (h.changeType === 'agent_created') { badgeClass = 'create'; typeLabel = 'Alta'; }
+        else if (h.changeType === 'agent_terminated') { badgeClass = 'delete'; typeLabel = 'Baja'; }
+        else if (h.changeType === 'agent_transferred') { badgeClass = 'move'; typeLabel = 'Transferencia'; }
+        else if (h.changeType === 'temporary_schedule_applied') { badgeClass = 'time'; typeLabel = 'Horario Temporal'; }
+        else if (h.changeType === 'vacation_created') { badgeClass = 'time'; typeLabel = 'Vacaciones'; }
+        else if (h.changeType === 'incapacity_created') { badgeClass = 'time'; typeLabel = 'Incapacidad'; }
+        else if (h.changeType === 'agent_reactivated') { badgeClass = 'create'; typeLabel = 'Reactivación'; }
+
+        // Generar Detalles del Cambio
+        let detailsHtml = [];
+        
+        if (h.changeType === 'agent_created') {
+           detailsHtml.push(`<b>Alta en:</b> ${h.after.campaign || '—'}`);
+           detailsHtml.push(`<b>Puesto:</b> ${h.after.role || '—'}`);
+           if (h.after.hireDate) detailsHtml.push(`<b>Ingreso:</b> ${h.after.hireDate}`);
+        
+        } else if (h.changeType === 'agent_updated' || h.changeType === 'temporary_schedule_applied') {
+            const fieldsToCompare = [
+                { key: 'campaign', label: 'Campaña' },
+                { key: 'supervisor', label: 'Supervisor' },
+                { key: 'coordinator', label: 'Coordinador' },
+                { key: 'role', label: 'Puesto' },
+                { key: 'channel', label: 'Canal' },
+                { key: 'status', label: 'Estado' },
+                { key: 'isNewHire', label: 'Tipo de Agente' }
+            ];
+            
+            fieldsToCompare.forEach(f => {
+                let oldVal = h.before ? h.before[f.key] : null;
+                let newVal = h.after ? h.after[f.key] : null;
+                
+                if (f.key === 'isNewHire') {
+                    oldVal = oldVal ? 'New Hire' : 'Operativo';
+                    newVal = newVal ? 'New Hire' : 'Operativo';
+                }
+
+                if (oldVal !== newVal) {
+                    detailsHtml.push(`<b>${f.label}:</b> <span class="log-old">${oldVal || 'Vacío'}</span> ➔ <span class="log-new">${newVal || 'Vacío'}</span>`);
+                }
+            });
+
+            // Comparar horarios
+            if (h.before && h.after && h.before.schedules && h.after.schedules) {
+                const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+                let schedChanges = [];
+                days.forEach(day => {
+                    if (h.before.schedules[day] !== h.after.schedules[day]) {
+                        schedChanges.push(`${day}: <span class="log-old">${h.before.schedules[day]}</span> ➔ <span class="log-new">${h.after.schedules[day]}</span>`);
+                    }
+                });
+                if (schedChanges.length) detailsHtml.push(`<b>Horarios:</b><br>${schedChanges.join('<br>')}`);
+            }
+
+            if (h.changeType === 'temporary_schedule_applied') {
+                detailsHtml.push(`<b style="color:#0A335B;">Vigencia temporal:</b> Del ${h.after.startDate} al ${h.after.endDate}`);
+            }
+
         } else if (h.changeType === 'agent_terminated') {
-           details = `Motivo: ${h.reason || 'No especificado'}`;
+            detailsHtml.push(`<b style="color:#991B1B;">Motivo de baja:</b> ${h.reason || 'No especificado'}`);
+            detailsHtml.push(`<b>Fecha efectiva:</b> ${h.after.terminationDate}`);
+            if (h.after.rehireable === false) detailsHtml.push(`<i>No elegible para recontratación</i>`);
+
+        } else if (h.changeType === 'agent_reactivated') {
+            detailsHtml.push(`<b>Fecha de reingreso:</b> ${h.after.hireDate}`);
+
+        } else if (h.changeType === 'agent_transferred') {
+            if (h.before.campaign !== h.after.toCampaign) detailsHtml.push(`<b>Campaña:</b> <span class="log-old">${h.before.campaign || '—'}</span> ➔ <span class="log-new">${h.after.toCampaign}</span>`);
+            if (h.before.supervisor !== h.after.toSupervisor) detailsHtml.push(`<b>Supervisor:</b> <span class="log-old">${h.before.supervisor || '—'}</span> ➔ <span class="log-new">${h.after.toSupervisor}</span>`);
+            if (h.before.coordinator !== h.after.toCoordinator) detailsHtml.push(`<b>Coordinador:</b> <span class="log-old">${h.before.coordinator || '—'}</span> ➔ <span class="log-new">${h.after.toCoordinator}</span>`);
+            if (h.before.role !== h.after.toRole) detailsHtml.push(`<b>Puesto:</b> <span class="log-old">${h.before.role || '—'}</span> ➔ <span class="log-new">${h.after.toRole}</span>`);
+            if (h.before.channel !== h.after.toChannel) detailsHtml.push(`<b>Canal:</b> <span class="log-old">${h.before.channel || '—'}</span> ➔ <span class="log-new">${h.after.toChannel}</span>`);
+            if (h.after.effectiveDate) detailsHtml.push(`<b>Fecha efectiva:</b> ${h.after.effectiveDate}`);
+            if (h.reason) detailsHtml.push(`<b>Motivo:</b> ${h.reason}`);
+
         } else if (h.changeType === 'vacation_created' || h.changeType === 'incapacity_created') {
-           details = `Del ${h.after.startDate} al ${h.after.endDate}`;
-        } else if (h.reason) {
-           details = h.reason;
-        } else {
-           details = '—';
+            detailsHtml.push(`<b>Periodo:</b> Del ${h.after.startDate} al ${h.after.endDate}`);
+            if (h.reason) detailsHtml.push(`<b>Folio / Motivo:</b> ${h.reason}`);
+        }
+
+        if (!detailsHtml.length && h.reason) {
+            detailsHtml.push(`<b>Nota:</b> ${h.reason}`);
         }
 
         return `
           <tr>
-            <td><div style="font-size:10px; color:#64748B;">${dateStr}</div><div style="font-family:monospace; font-weight:800; color:#0A335B;">${timeStr}</div></td>
-            <td><span class="roster-agent-id">${h.agentId}</span></td>
-            <td><span style="font-weight:700; color:#334155;">${typeLabel}</span></td>
-            <td><div style="font-size:11px; line-height:1.4;">${details}</div></td>
-            <td>${h.changedBy || 'operaciones'}</td>
+            <td style="vertical-align: top;"><div style="font-size:10px; color:#64748B;">${dateStr}</div><div style="font-family:monospace; font-weight:800; color:#0A335B;">${timeStr}</div></td>
+            <td style="vertical-align: top;">
+                <div class="roster-agent-id">${h.agentId}</div>
+                <div style="font-size:10px; color:#475569; white-space:normal; max-width:180px;">${agentName || '—'}</div>
+            </td>
+            <td style="vertical-align: top;"><span class="badge-log ${badgeClass}">${typeLabel}</span></td>
+            <td style="vertical-align: top; white-space: normal;">
+                <div class="log-detail-list">${detailsHtml.length ? detailsHtml.join('<br>') : '<i>Sin detalles registrados</i>'}</div>
+            </td>
+            <td style="vertical-align: top;"><span style="font-size:10px; color:#64748B; text-transform:uppercase;">${h.changedBy || 'SISTEMA'}</span></td>
           </tr>
         `;
       }).join('');
