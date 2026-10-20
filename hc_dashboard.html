@@ -412,7 +412,14 @@
       <div class="form-grid">
         <div class="field field-full">
           <label>Puesto / Rol Destino *</label>
-          <input id="transferRole" list="rolesList" required oninput="toggleTransferFields()" onchange="toggleTransferFields()">
+          <select id="transferRole" class="roster-select" required onchange="toggleTransferFields()" style="font-size:13px; padding: 0 12px;">
+            <option value="Agente">Agente (Operativo)</option>
+            <option value="Supervisor">Supervisor</option>
+            <option value="Coordinador">Coordinador</option>
+            <option value="Staff QA">Staff QA</option>
+            <option value="Formador">Formador</option>
+            <option value="Administrativo">Administrativo</option>
+          </select>
         </div>
       </div>
       
@@ -960,12 +967,12 @@ async function reactivateAgent(agentId) {
 
 // Lógica para ocultar campos operativos si es Administrativo
 function toggleTransferFields() {
-  const roleInput = document.getElementById('transferRole').value.trim().toLowerCase();
+  const roleValue = document.getElementById('transferRole').value;
   const opsFields = document.getElementById('transferOpsFields');
   const campaignField = document.getElementById('transferCampaign');
   
-  // Si el rol contiene palabras administrativas, ocultamos los campos
-  const isAdmin = ['administrativo', 'admin', 'staff', 'staff qa', 'formador', 'rrhh'].some(term => roleInput.includes(term));
+  // Si el rol seleccionado es administrativo, ocultamos los campos operativos
+  const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(roleValue);
   
   if (isAdmin) {
     opsFields.style.display = 'none';
@@ -983,7 +990,19 @@ async function openTransferModal(agentId) {
   document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
   document.getElementById('transferAgentId').value = agentId;
   
-  document.getElementById('transferRole').value = a?.role || 'Agente';
+  // Seleccionar el rol actual del agente en el dropdown
+  const currentRole = a?.role || 'Agente';
+  const roleSelect = document.getElementById('transferRole');
+  
+  // Si el rol actual no está en las opciones (por ejemplo, un rol personalizado previo), lo agregamos temporalmente
+  if (!Array.from(roleSelect.options).some(opt => opt.value === currentRole)) {
+      const newOpt = document.createElement('option');
+      newOpt.value = currentRole;
+      newOpt.text = currentRole;
+      roleSelect.add(newOpt);
+  }
+  roleSelect.value = currentRole;
+
   document.getElementById('transferCampaign').value = a?.campaign || '';
   document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
   document.getElementById('transferSupervisor').value = a?.supervisor || '';
@@ -1001,7 +1020,7 @@ async function submitTransfer() {
   const btn = document.getElementById('transferBtn'); btn.disabled = true;
   try {
     const id = document.getElementById('transferAgentId').value;
-    const toRole = document.getElementById('transferRole').value.trim() || 'Agente';
+    const toRole = document.getElementById('transferRole').value;
     const toCampaign = document.getElementById('transferCampaign').value.trim();
     const toChannel = document.getElementById('transferChannel').value;
     const toSupervisor = document.getElementById('transferSupervisor').value.trim();
@@ -1009,8 +1028,7 @@ async function submitTransfer() {
     const effectiveDate = document.getElementById('transferDate').value;
     const reason = document.getElementById('transferReason').value.trim();
 
-    // Validar si es administrativo para no exigir campaña
-    const isAdmin = ['administrativo', 'admin', 'staff', 'staff qa', 'formador', 'rrhh'].some(term => toRole.toLowerCase().includes(term));
+    const isAdmin = ['Administrativo', 'Staff QA', 'Formador'].includes(toRole);
 
     if (!toCampaign && !isAdmin) throw new Error('La campaña destino es obligatoria.');
     if (!effectiveDate) throw new Error('La fecha efectiva es obligatoria.');
