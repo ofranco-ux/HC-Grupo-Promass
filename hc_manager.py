@@ -353,6 +353,51 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
             
     return _fetch_agent(conn, new_id)
 
+def _format_history_detail(h):
+    details = []
+    change_type = h['change_type']
+    before = json.loads(h['before_json']) if h['before_json'] else {}
+    after = json.loads(h['after_json']) if h['after_json'] else {}
+    
+    if change_type == 'agent_created':
+        details.append(f"Alta en: {after.get('campaign', '')}")
+        details.append(f"Puesto: {after.get('role', '')}")
+    elif change_type in ('agent_updated', 'temporary_schedule_applied'):
+        for k, label in [('campaign', 'Campaña'), ('supervisor', 'Supervisor'), ('coordinator', 'Coordinador'), ('role', 'Puesto'), ('channel', 'Canal'), ('status', 'Estado')]:
+            if before.get(k) != after.get(k):
+                details.append(f"{label}: {before.get(k, '')} -> {after.get(k, '')}")
+        
+        if before.get('isNewHire') != after.get('isNewHire'):
+            details.append(f"Tipo: {'New Hire' if before.get('isNewHire') else 'Operativo'} -> {'New Hire' if after.get('isNewHire') else 'Operativo'}")
+
+        if before.get('schedules') != after.get('schedules'):
+            days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+            sch_changes = []
+            for d in days:
+                if before.get('schedules', {}).get(d) != after.get('schedules', {}).get(d):
+                    sch_changes.append(f"{d}: {before.get('schedules',{}).get(d)} -> {after.get('schedules',{}).get(d)}")
+            if sch_changes:
+                details.append("Horarios: " + ", ".join(sch_changes))
+        
+        if change_type == 'temporary_schedule_applied':
+            details.append(f"Temporal: {after.get('startDate')} al {after.get('endDate')}")
+            
+    elif change_type == 'agent_terminated':
+        details.append(f"Motivo: {h['reason']}")
+        details.append(f"Fecha: {after.get('terminationDate')}")
+        
+    elif change_type == 'agent_transferred':
+        if before.get('campaign') != after.get('toCampaign'): details.append(f"Campaña: {before.get('campaign')} -> {after.get('toCampaign')}")
+        if before.get('supervisor') != after.get('toSupervisor'): details.append(f"Supervisor: {before.get('supervisor')} -> {after.get('toSupervisor')}")
+        if before.get('coordinator') != after.get('toCoordinator'): details.append(f"Coordinador: {before.get('coordinator')} -> {after.get('toCoordinator')}")
+        if before.get('role') != after.get('toRole'): details.append(f"Puesto: {before.get('role')} -> {after.get('toRole')}")
+        if after.get('effectiveDate'): details.append(f"Efectiva: {after.get('effectiveDate')}")
+        
+    elif change_type in ('vacation_created', 'incapacity_created'):
+        details.append(f"Periodo: {after.get('startDate')} al {after.get('endDate')}")
+        
+    return " | ".join(details) if details else (h['reason'] or '')
+
 hc_bp = Blueprint('hc_manager', __name__)
 
 @hc_bp.after_request
@@ -724,10 +769,81 @@ def hc_agent_history(agent_id):
 def hc_global_history():
     _init_db()
     limit = max(1, min(int(request.args.get('limit', 500)), 2000))
+    start_date = request.args.get('startDate', '').strip()
+    end_date = request.args.get('endDate', '').strip()
+    
+    sql = "SELECT * FROM hc_history WHERE 1=1"
+    args = []
+    if start_date:
+        sql += " AND changed_at >= ?"
+        args.append(start_date)
+    if end_date:
+        sql += " AND changed_at <= ?"
+        args.append(end_date + "T23:59:59")
+        
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    
     conn = _conn()
-    try: rows = conn.execute("SELECT * FROM hc_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    try: rows = conn.execute(sql, args).fetchall()
     finally: conn.close()
+    
     return jsonify({'history': [{'id': r['id'], 'agentId': r['agent_id'], 'changeType': r['change_type'], 'before': json.loads(r['before_json']) if r['before_json'] else None, 'after': json.loads(r['after_json']) if r['after_json'] else None, 'reason': r['reason'] or '', 'effectiveDate': r['effective_date'], 'changedAt': r['changed_at'], 'changedBy': r['changed_by'] or ''} for r in rows]}), 200
+
+@hc_bp.route('/api/hc/history/export', methods=['GET'])
+def hc_export_history_csv():
+    _init_db()
+    start_date = request.args.get('startDate', '').strip()
+    end_date = request.args.get('endDate', '').strip()
+    
+    sql = "SELECT * FROM hc_history WHERE 1=1"
+    args = []
+    if start_date:
+        sql += " AND changed_at >= ?"
+        args.append(start_date)
+    if end_date:
+        sql += " AND changed_at <= ?"
+        args.append(end_date + "T23:59:59")
+        
+    sql += " ORDER BY id DESC"
+    
+    conn = _conn()
+    try:
+        rows = conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+        
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(['Fecha / Hora', 'ID Agente', 'Nombre del Agente', 'Tipo de Cambio', 'Detalles del Cambio', 'Motivo', 'Usuario'])
+    
+    for r in rows:
+        dt = datetime.strptime(r['changed_at'][:19], '%Y-%m-%dT%H:%M:%S')
+        date_str = dt.strftime('%d/%m/%Y %H:%M')
+        
+        # Buscar nombre del agente
+        agent_name = ''
+        before = json.loads(r['before_json']) if r['before_json'] else {}
+        after = json.loads(r['after_json']) if r['after_json'] else {}
+        if after.get('fullName'): agent_name = after.get('fullName')
+        elif before.get('fullName'): agent_name = before.get('fullName')
+        
+        # Formatear tipo de cambio
+        type_label = r['change_type']
+        if type_label == 'agent_created': type_label = 'Alta'
+        elif type_label == 'agent_updated': type_label = 'Actualización'
+        elif type_label == 'agent_terminated': type_label = 'Baja'
+        elif type_label == 'agent_reactivated': type_label = 'Reactivación'
+        elif type_label == 'agent_transferred': type_label = 'Transferencia'
+        elif type_label == 'temporary_schedule_applied': type_label = 'Horario Temporal'
+        elif type_label == 'vacation_created': type_label = 'Vacaciones'
+        elif type_label == 'incapacity_created': type_label = 'Incapacidad'
+        
+        details_str = _format_history_detail(r)
+        
+        writer.writerow([date_str, r['agent_id'], agent_name, type_label, details_str, r['reason'] or '', r['changed_by'] or 'sistema'])
+
+    return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'Bitacora_{_today()}.csv')
 
 @hc_bp.route('/api/hc/metrics', methods=['GET'])
 def hc_metrics():
