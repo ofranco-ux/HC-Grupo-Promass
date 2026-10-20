@@ -218,8 +218,11 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
     days = {d: _validate_schedule(schedules.get(d, (before or {}).get('schedules', {}).get(d, 'DD-DD'))) for d in ROSTER_DAYS}
 
     hire_date = payload.get('hireDate')
-    if hire_date: hire_date = _validate_date(hire_date, 'fecha de ingreso')
-    elif before is None: hire_date = _today()
+    if hire_date: 
+        hire_date = _validate_date(hire_date, 'fecha de ingreso')
+    elif before is None: 
+        # Importante: NULL asegura que el agente cuente para el HC inicial si no tiene fecha.
+        hire_date = None
 
     now = _now()
     values = (
@@ -262,6 +265,7 @@ def hc_list_agents():
     campaign = request.args.get('campaign', '').strip()
     channel = request.args.get('channel', '').strip()
     supervisor = request.args.get('supervisor', '').strip()
+    coordinator = request.args.get('coordinator', '').strip()
     status_filter = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip().lower()
     start_date = request.args.get('startDate', '').strip()
@@ -278,6 +282,9 @@ def hc_list_agents():
     if supervisor:
         sql += " AND supervisor=?"
         args.append(supervisor)
+    if coordinator:
+        sql += " AND coordinator=?"
+        args.append(coordinator)
     if status_filter == 'Activo':
         sql += " AND status='Activo'"
     elif status_filter == 'Baja':
@@ -491,8 +498,12 @@ def hc_metrics():
     _init_db()
     today = _today()
     default_start = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    start = _validate_date(request.args.get('start') or default_start, 'start')
-    end = _validate_date(request.args.get('end') or today, 'end')
+    try:
+        start = _validate_date(request.args.get('start') or default_start, 'start')
+        end = _validate_date(request.args.get('end') or today, 'end')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     if start > end:
         return jsonify({'error': 'La fecha inicial no puede ser posterior a la fecha final.'}), 400
 
@@ -501,8 +512,6 @@ def hc_metrics():
     supervisor = request.args.get('supervisor', '').strip()
     search = request.args.get('search', '').strip().lower()
 
-    # Los filtros de agentes deben calificarse con "a": las métricas también
-    # consultan tablas de bajas/transferencias que no tienen las mismas columnas.
     filters = []
     args = []
     if campaign:
@@ -517,22 +526,23 @@ def hc_metrics():
     if search:
         filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
         args.extend([f"%{search}%", f"%{search}%"])
+    
     agent_where = (" AND " + " AND ".join(filters)) if filters else ""
 
     conn = _conn()
     try:
+        # 1. Agentes activos
         active = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' "
             "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
             [today] + args
         ).fetchone()[0]
 
-        # HC inicial: incluye a los agentes que hoy aparecen como Baja sin fecha,
-        # porque para el ejercicio se consideran bajas del mes en curso. Para meses
-        # posteriores, esos registros heredados ya no forman parte del HC inicial.
+        # 2. HC inicial
         month_start = datetime.now().strftime('%Y-%m-01')
         next_month_date = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1)
         next_month_start = next_month_date.strftime('%Y-%m-%d')
+        
         active_at_start = conn.execute(
             "SELECT COUNT(*) FROM hc_agents a WHERE "
             "(a.hire_date IS NULL OR a.hire_date <= ?) "
@@ -544,6 +554,7 @@ def hc_metrics():
             [start, start, start, start, next_month_start] + args
         ).fetchone()[0]
 
+        # 3. Distribución por campaña
         by_campaign = [dict(r) for r in conn.execute(
             "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
             "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
@@ -551,50 +562,48 @@ def hc_metrics():
             [today] + args
         ).fetchall()]
 
-        # Bajas del periodo: combina el historial de bajas con los datos del agente.
-        # Regla transitoria: los registros con estado Baja y sin fecha se asignan al
-        # mes calendario en curso. A partir de que se capture termination_date,
-        # se contabilizan exclusivamente en el mes de esa fecha. UNION evita duplicados.
-        termination_sql = """
-            SELECT COUNT(DISTINCT agent_id) FROM (
-                SELECT t.agent_id AS agent_id
-                FROM hc_terminations t
-                JOIN hc_agents a ON a.agent_id = t.agent_id
-                WHERE t.termination_date BETWEEN ? AND ?
-        """
-        termination_args = [start, end]
-        if agent_where:
-            termination_sql += agent_where
-            termination_args.extend(args)
+        # 4. Bajas del periodo
+        term_query_parts = []
+        term_args = []
 
-        termination_sql += """
-                UNION
-                SELECT a.agent_id AS agent_id
-                FROM hc_agents a
-                WHERE a.termination_date BETWEEN ? AND ?
-        """
-        termination_args.extend([start, end])
-        # Bajas heredadas sin fecha: contarlas como bajas del mes corriente solo
-        # cuando el periodo consultado se cruza con ese mes. No usar updated_at,
-        # porque no representa necesariamente la fecha efectiva de baja.
+        # Bloque 1: Historial de bajas
+        q1 = "SELECT t.agent_id AS agent_id FROM hc_terminations t JOIN hc_agents a ON a.agent_id = t.agent_id WHERE t.termination_date BETWEEN ? AND ?"
+        q1_args = [start, end]
+        if agent_where:
+            q1 += agent_where
+            q1_args.extend(args)
+        term_query_parts.append(q1)
+        term_args.extend(q1_args)
+
+        # Bloque 2: Bajas en la tabla de agentes con fecha
+        q2 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.termination_date BETWEEN ? AND ?"
+        q2_args = [start, end]
+        if agent_where:
+            q2 += agent_where
+            q2_args.extend(args)
+        term_query_parts.append(q2)
+        term_args.extend(q2_args)
+
+        # Bloque 3: Bajas heredadas sin fecha (si aplica)
         if start < next_month_start and end >= month_start:
-            termination_sql += """
-                UNION
-                SELECT a.agent_id AS agent_id
-                FROM hc_agents a
-                WHERE a.status = 'Baja' AND a.termination_date IS NULL
-            """
-        if agent_where:
-            termination_sql += agent_where
-            termination_args.extend(args)
-        termination_sql += ")"
-        terminations = conn.execute(termination_sql, termination_args).fetchone()[0]
+            q3 = "SELECT a.agent_id AS agent_id FROM hc_agents a WHERE a.status = 'Baja' AND a.termination_date IS NULL"
+            q3_args = []
+            if agent_where:
+                q3 += agent_where
+                q3_args.extend(args)
+            term_query_parts.append(q3)
+            term_args.extend(q3_args)
 
-        q_hires = "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where
-        new_hires = conn.execute(q_hires, [start, end] + args).fetchone()[0]
+        termination_sql = "SELECT COUNT(DISTINCT agent_id) FROM (" + " UNION ".join(term_query_parts) + ")"
+        terminations = conn.execute(termination_sql, term_args).fetchone()[0]
 
-        # Transferencias: los filtros se aplican al agente y la campaña
-        # seleccionada puede ser origen o destino del movimiento.
+        # 5. Altas
+        new_hires = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where,
+            [start, end] + args
+        ).fetchone()[0]
+
+        # 6. Transferencias
         transfer_filters = []
         transfer_args = [start, end]
         if campaign:
@@ -609,19 +618,13 @@ def hc_metrics():
         if search:
             transfer_filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
             transfer_args.extend([f"%{search}%", f"%{search}%"])
-        transfer_sql = """
-            SELECT COUNT(*) FROM hc_transfers t
-            LEFT JOIN hc_agents a ON a.agent_id=t.agent_id
-            WHERE t.effective_date BETWEEN ? AND ?
-        """
+        
+        transfer_sql = "SELECT COUNT(*) FROM hc_transfers t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id WHERE t.effective_date BETWEEN ? AND ?"
         if transfer_filters:
             transfer_sql += " AND " + " AND ".join(transfer_filters)
         transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
 
-        # Mostrar rotación siempre como porcentaje numérico. Si el HC inicial es
-        # cero, no existe una base válida para calcular la tasa.
         attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start else 0.0
-        # Alias explícito para clientes del dashboard que esperan el campo porcentual.
         net_change = new_hires - terminations
     finally:
         conn.close()
@@ -747,7 +750,7 @@ def hc_import():
                         raise ValueError('ID y Campaña son obligatorios.')
                         
                     hire_date_raw = get('Fecha Ingreso')
-                    hire_date = _today()
+                    hire_date = None
                     if hire_date_raw:
                         try:
                             hire_date = _validate_date(hire_date_raw, 'fecha ingreso')
