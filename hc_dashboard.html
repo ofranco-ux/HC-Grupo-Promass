@@ -7,376 +7,71 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-    body {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        background-color: #f4f7f9;
-        margin: 0;
-        padding: 20px;
-        color: #2A4358;
-    }
-    
-    .roster-shell {
-        width: 100%;
-        max-width: 1600px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        border-radius: 24px;
-        border: 1px solid #C9D7E2;
-        background: linear-gradient(180deg,#F8FBFD,#EEF3F7);
-        box-shadow: 0 38px 90px -48px rgba(22,45,64,.7);
-        overflow: hidden;
-        min-height: calc(100vh - 40px);
-    }
-
-    .roster-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-        padding: 14px 16px;
-        color: #FFF;
-        background: linear-gradient(135deg,#173A56,#214F69 70%,#276862 140%);
-    }
-
-    .roster-head-left {
-        display: flex;
-        align-items: center;
-        gap: 11px;
-    }
-
-    .roster-head-mark {
-        width: 38px;
-        height: 38px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.07);
-    }
-
-    .roster-head-mark svg {
-        width: 18px;
-        height: 18px;
-        fill: none;
-        stroke: #9DE5D8;
-        stroke-width: 1.8;
-    }
-
-    .roster-title {
-        font-size: 14px;
-        font-weight: 900;
-        letter-spacing: -.02em;
-    }
-
-    .roster-subtitle {
-        margin-top: 2px;
-        color: #C2D5E2;
-        font-size: 8.5px;
-    }
-
-    .roster-head-actions {
-        display: flex;
-        align-items: center;
-        gap: 7px;
-    }
-
-    .roster-head-btn {
-        min-height: 34px;
-        padding: 0 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.06);
-        color: #E6EFF5;
-        font-size: 9px;
-        font-weight: 800;
-        cursor: pointer;
-        transition: .16s ease;
-    }
-
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px; color: #2A4358; }
+    .roster-shell { width: 100%; max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; border-radius: 24px; border: 1px solid #C9D7E2; background: linear-gradient(180deg,#F8FBFD,#EEF3F7); box-shadow: 0 38px 90px -48px rgba(22,45,64,.7); overflow: hidden; min-height: calc(100vh - 40px); }
+    .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; color: #FFF; background: linear-gradient(135deg,#173A56,#214F69 70%,#276862 140%); }
+    .roster-head-left { display: flex; align-items: center; gap: 11px; }
+    .roster-head-mark { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.07); }
+    .roster-head-mark svg { width: 18px; height: 18px; fill: none; stroke: #9DE5D8; stroke-width: 1.8; }
+    .roster-title { font-size: 14px; font-weight: 900; letter-spacing: -.02em; }
+    .roster-subtitle { margin-top: 2px; color: #C2D5E2; font-size: 8.5px; }
+    .roster-head-actions { display: flex; align-items: center; gap: 7px; }
+    .roster-head-btn { min-height: 34px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #E6EFF5; font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
     .roster-head-btn:hover { background: rgba(255,255,255,.12); }
-    .roster-head-btn.primary {
-        background: rgba(126,217,204,.13);
-        border-color: rgba(126,217,204,.28);
-        color: #C9F4EC;
-    }
+    .roster-head-btn.primary { background: rgba(126,217,204,.13); border-color: rgba(126,217,204,.28); color: #C9F4EC; }
+    
+    .roster-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding: 11px 14px 0; }
+    .roster-kpi { padding: 10px 11px; border-radius: 13px; border: 1px solid #D8E2EA; background: #FFF; min-width: 0; }
+    .roster-kpi-label { color: #8394A5; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    .roster-kpi-value { margin-top: 4px; color: #203E55; font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roster-kpi-detail { margin-top: 2px; color: #8796A5; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .roster-kpis {
-        display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 8px;
-        padding: 11px 14px 0;
-    }
+    .roster-toolbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 8px; padding: 12px 14px; align-items: end; }
+    .roster-input, .roster-select { width: 100%; min-height: 36px; border-radius: 10px; border: 1px solid #CFDBE5; background: #FFF; color: #2A4358; padding: 0 10px; font-size: 10px; font-weight: 600; outline: none; }
+    .roster-input:focus, .roster-select:focus { border-color: #829BCC; }
+    .roster-toolbar-btn { min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #CAD7E1; background: #F9FBFC; color: #3D5A70; font-size: 9px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 
-    .roster-kpi {
-        padding: 10px 11px;
-        border-radius: 13px;
-        border: 1px solid #D8E2EA;
-        background: #FFF;
-        min-width: 0;
-    }
+    .roster-content { padding: 0 14px 14px; flex: 1; display: flex; flex-direction: column; }
+    .roster-agents-scroll { flex: 1; overflow: auto; border: 1px solid #D4DFE8; border-radius: 14px; background: #FFF; }
+    .roster-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10px; min-width: 1200px; }
+    .roster-table th { position: sticky; top: 0; z-index: 3; padding: 9px 8px; background: #EAF0F5; color: #61768A; font-size: 8px; text-transform: uppercase; letter-spacing: .07em; text-align: left; border-bottom: 1px solid #D5DFE7; white-space: nowrap; }
+    .roster-table td { padding: 8px; color: #3F586E; border-bottom: 1px solid #EEF2F5; white-space: nowrap; vertical-align: middle; }
+    .roster-table tr:hover td { background: #F8FAFC; }
+    
+    .roster-agent-id { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: #263F55; }
+    .roster-agent-name { font-weight: 700; color: #263F55; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 6px; align-items: center; border-radius: 7px; background: #EFF4F7; color: #526A7E; font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 800; }
+    .roster-schedule.off { background: #F4F5F7; color: #9AA6B1; }
+    .roster-status { display: inline-flex; min-height: 22px; padding: 0 7px; align-items: center; border-radius: 999px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+    .roster-status.active { background: #DEF1EC; color: #27766C; }
+    .roster-status.inactive { background: #F1E4E7; color: #A05263; }
+    .roster-status.vacation { background: #E9F1FB; color: #3B5998; }
+    .roster-status.incapacity { background: #FEF3C7; color: #92400E; }
+    .roster-edit-btn { min-height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid #D0DCE5; color: #49647A; background: #FFF; font-size: 8px; font-weight: 800; cursor: pointer; }
 
-    .roster-kpi-label {
-        color: #8394A5;
-        font-size: 8px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-    }
+    .download-block { margin: 0 14px 12px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; color: #334155; }
+    .download-block input[type="date"] { min-height: 32px; padding: 0 8px; font-size: 11px; }
 
-    .roster-kpi-value {
-        margin-top: 4px;
-        color: #203E55;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 16px;
-        font-weight: 900;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .roster-kpi-detail {
-        margin-top: 2px;
-        color: #8796A5;
-        font-size: 8px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .roster-toolbar {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
-        gap: 8px;
-        padding: 12px 14px;
-    }
-
-    .roster-input, .roster-select {
-        width: 100%;
-        min-height: 36px;
-        border-radius: 10px;
-        border: 1px solid #CFDBE5;
-        background: #FFF;
-        color: #2A4358;
-        padding: 0 10px;
-        font-size: 10px;
-        font-weight: 600;
-        outline: none;
-    }
-
-    .roster-input:focus, .roster-select:focus {
-        border-color: #829BCC;
-    }
-
-    .roster-toolbar-btn {
-        min-height: 36px;
-        padding: 0 12px;
-        border-radius: 10px;
-        border: 1px solid #CAD7E1;
-        background: #F9FBFC;
-        color: #3D5A70;
-        font-size: 9px;
-        font-weight: 800;
-        cursor: pointer;
-        white-space: nowrap;
-    }
-
-    .roster-content {
-        padding: 0 14px 14px;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .roster-agents-scroll {
-        flex: 1;
-        overflow: auto;
-        border: 1px solid #D4DFE8;
-        border-radius: 14px;
-        background: #FFF;
-    }
-
-    .roster-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        font-size: 10px;
-        min-width: 1200px;
-    }
-
-    .roster-table th {
-        position: sticky;
-        top: 0;
-        z-index: 3;
-        padding: 9px 8px;
-        background: #EAF0F5;
-        color: #61768A;
-        font-size: 8px;
-        text-transform: uppercase;
-        letter-spacing: .07em;
-        text-align: left;
-        border-bottom: 1px solid #D5DFE7;
-        white-space: nowrap;
-    }
-
-    .roster-table td {
-        padding: 8px;
-        color: #3F586E;
-        border-bottom: 1px solid #EEF2F5;
-        white-space: nowrap;
-        vertical-align: middle;
-    }
-
-    .roster-table tr:hover td {
-        background: #F8FAFC;
-    }
-
-    .roster-agent-id {
-        font-family: 'JetBrains Mono', monospace;
-        font-weight: 800;
-        color: #263F55;
-    }
-
-    .roster-agent-name {
-        font-weight: 700;
-        color: #263F55;
-        max-width: 220px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .roster-schedule {
-        display: inline-flex;
-        min-height: 24px;
-        padding: 0 6px;
-        align-items: center;
-        border-radius: 7px;
-        background: #EFF4F7;
-        color: #526A7E;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 8px;
-        font-weight: 800;
-    }
-
-    .roster-schedule.off {
-        background: #F4F5F7;
-        color: #9AA6B1;
-    }
-
-    .roster-status {
-        display: inline-flex;
-        min-height: 22px;
-        padding: 0 7px;
-        align-items: center;
-        border-radius: 999px;
-        font-size: 8px;
-        font-weight: 900;
-        text-transform: uppercase;
-    }
-
-    .roster-status.active {
-        background: #DEF1EC;
-        color: #27766C;
-    }
-
-    .roster-status.inactive {
-        background: #F1E4E7;
-        color: #A05263;
-    }
-
-    .roster-edit-btn {
-        min-height: 26px;
-        padding: 0 8px;
-        border-radius: 7px;
-        border: 1px solid #D0DCE5;
-        color: #49647A;
-        background: #FFF;
-        font-size: 8px;
-        font-weight: 800;
-        cursor: pointer;
-    }
-
-    /* Descargar roster block */
-    .download-block {
-        margin: 0 14px 12px;
-        padding: 12px;
-        border: 1px solid #cbd5e1;
-        border-radius: 12px;
-        background: #f8fafc;
-        color: #334155;
-    }
-
-    /* Modales */
-    .modal-backdrop {
-        position: fixed; inset: 0; z-index: 100;
-        display: flex; align-items: center; justify-content: center;
-        padding: 16px; background: rgba(20,40,56,.42);
-        backdrop-filter: blur(4px);
-    }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20,40,56,.42); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
-    .modal {
-        width: 100%; max-width: 580px; max-height: calc(100vh - 40px);
-        background: #F7FAFC; border-radius: 18px; border: 1px solid #C9D7E2;
-        box-shadow: 0 28px 60px -30px rgba(20,42,62,.55);
-        overflow: hidden; display: flex; flex-direction: column;
-    }
+    .modal { width: 100%; max-width: 580px; max-height: calc(100vh - 40px); background: #F7FAFC; border-radius: 18px; border: 1px solid #C9D7E2; box-shadow: 0 28px 60px -30px rgba(20,42,62,.55); overflow: hidden; display: flex; flex-direction: column; }
     .modal-lg { max-width: 800px; }
-    .modal-header {
-        display: flex; align-items: flex-start; justify-content: space-between;
-        gap: 10px; padding: 16px 18px; border-bottom: 1px solid #DDE5EE;
-    }
+    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid #DDE5EE; }
     .modal-title { font-size: 15px; font-weight: 800; color: #172033; margin: 0; }
     .modal-sub { font-size: 10px; color: #75879B; margin: 3px 0 0; }
-    .modal-close {
-        width: 30px; height: 30px; border-radius: 9px;
-        border: 1px solid #CED9E4; background: #fff;
-        color: #75879B; cursor: pointer; font-size: 15px;
-        display: flex; align-items: center; justify-content: center;
-    }
+    .modal-close { width: 30px; height: 30px; border-radius: 9px; border: 1px solid #CED9E4; background: #fff; color: #75879B; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
     .modal-body { padding: 16px 18px; overflow-y: auto; }
-    .modal-footer {
-        display: flex; justify-content: flex-end; gap: 8px;
-        padding: 12px 18px; border-top: 1px solid #DDE5EE;
-        background: #F1F5F8;
-    }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid #DDE5EE; background: #F1F5F8; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .field-full { grid-column: 1 / -1; }
     .field { display: flex; flex-direction: column; gap: 4px; }
     .field label { font-size: 9px; font-weight: 800; color: #75879B; text-transform: uppercase; }
-    .form-section-title {
-        font-size: 9px; font-weight: 900; text-transform: uppercase;
-        letter-spacing: .1em; color: #75879B;
-        margin: 12px 0 8px; padding-top: 8px;
-        border-top: 1px solid #DDE5EE;
-    }
+    .form-section-title { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; color: #75879B; margin: 12px 0 8px; padding-top: 8px; border-top: 1px solid #DDE5EE; }
     .form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-    
-    .btn-save {
-        min-height: 36px; padding: 0 16px;
-        border-radius: 10px; border: 1px solid transparent;
-        background: linear-gradient(135deg, #2F6B63, #256F64);
-        color: #fff; font-size: 10px; font-weight: 800;
-        cursor: pointer;
-    }
-    .btn-cancel {
-        min-height: 36px; padding: 0 16px;
-        border-radius: 10px; border: 1px solid #CED9E4;
-        background: #fff; color: #41536A;
-        font-size: 10px; font-weight: 800; cursor: pointer;
-    }
+    .btn-save { min-height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid transparent; background: linear-gradient(135deg, #2F6B63, #256F64); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
+    .btn-cancel { min-height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid #CED9E4; background: #fff; color: #41536A; font-size: 10px; font-weight: 800; cursor: pointer; }
 
-    /* Toast */
-    .toast {
-        position: fixed; bottom: 20px; right: 20px; z-index: 200;
-        min-width: 240px; max-width: 400px;
-        padding: 11px 14px; border-radius: 11px;
-        color: #fff; font-size: 11px; font-weight: 700;
-        background: #225F58; border: 1px solid #347A72;
-        box-shadow: 0 16px 36px -22px rgba(24,49,68,.5);
-        opacity: 0; transform: translateY(10px);
-        transition: .22s ease; pointer-events: none;
-    }
+    .toast { position: fixed; bottom: 20px; right: 20px; z-index: 200; min-width: 240px; max-width: 400px; padding: 11px 14px; border-radius: 11px; color: #fff; font-size: 11px; font-weight: 700; background: #225F58; border: 1px solid #347A72; box-shadow: 0 16px 36px -22px rgba(24,49,68,.5); opacity: 0; transform: translateY(10px); transition: .22s ease; pointer-events: none; }
     .toast.is-visible { opacity: 1; transform: translateY(0); }
     .toast.is-error { background: #8A4052; border-color: #A95468; }
 
@@ -406,7 +101,7 @@
             </div>
         </div>
         <div class="roster-head-actions">
-            <span class="roster-sync-status" style="color:#83D5A6;font-size:8px;font-weight:800;margin-right:10px;">● Sincronizado · persistente</span>
+            <span style="color:#83D5A6;font-size:8px;font-weight:800;margin-right:10px;">● Sincronizado · persistente</span>
             <button class="roster-head-btn" onclick="downloadTemplate()"><span>Plantilla</span></button>
             <button class="roster-head-btn primary" onclick="document.getElementById('fileInput').click()" title="Carga inicial o actualización masiva"><span>Carga masiva Excel</span></button>
             <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
@@ -416,36 +111,12 @@
     </div>
 
     <div class="roster-kpis">
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Agentes activos</div>
-            <div class="roster-kpi-value" id="kpiActive">—</div>
-            <div class="roster-kpi-detail">Plantilla vigente</div>
-        </div>
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Campañas</div>
-            <div class="roster-kpi-value" id="kpiCampaigns">—</div>
-            <div class="roster-kpi-detail">Con roster asignado</div>
-        </div>
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Supervisores</div>
-            <div class="roster-kpi-value" id="kpiSupervisors">—</div>
-            <div class="roster-kpi-detail">Registrados</div>
-        </div>
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Coordinadores</div>
-            <div class="roster-kpi-value" id="kpiCoordinators">—</div>
-            <div class="roster-kpi-detail">Registrados</div>
-        </div>
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Bajas del periodo</div>
-            <div class="roster-kpi-value" id="kpiTerminations">—</div>
-            <div class="roster-kpi-detail" id="kpiNetChange">—</div>
-        </div>
-        <div class="roster-kpi">
-            <div class="roster-kpi-label">Attrition</div>
-            <div class="roster-kpi-value" id="kpiAttrition">—</div>
-            <div class="roster-kpi-detail">Bajas / HC inicial</div>
-        </div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Bajas del periodo</div><div class="roster-kpi-value" id="kpiTerminations">—</div><div class="roster-kpi-detail" id="kpiNetChange">—</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Attrition</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail">Bajas / HC inicial</div></div>
     </div>
 
     <div class="roster-toolbar">
@@ -453,7 +124,13 @@
         <select id="filterSupervisor" class="roster-select" onchange="loadAgents()"><option value="">Todos los supervisores</option></select>
         <select id="filterCoordinator" class="roster-select" onchange="loadAgents()"><option value="">Todos los coordinadores</option></select>
         <select id="filterChannel" class="roster-select" onchange="loadAgents()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
-        <select id="filterStatus" class="roster-select" onchange="loadAgents()"><option value="">Todos los estados</option><option value="Activo">Activo</option><option value="Baja">Baja</option></select>
+        <select id="filterStatus" class="roster-select" onchange="loadAgents()">
+            <option value="">Todos los estados</option>
+            <option value="Activo">Activo</option>
+            <option value="Baja">Baja</option>
+            <option value="Vacación">Vacación</option>
+            <option value="Incapacidad">Incapacidad</option>
+        </select>
         <input id="filterSearch" class="roster-input" placeholder="Buscar ID, nombre..." oninput="debouncedLoadAgents()">
     </div>
 
@@ -461,6 +138,10 @@
         <strong style="font-size:11px;">Descargar roster por fechas</strong>
         <p style="font-size:10px;margin:4px 0 8px;">Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:10px;font-weight:800;color:#8394A5;">Desde</label>
+            <input id="rosterEffectiveStart" type="date" class="roster-input" style="width:130px;">
+            <label style="font-size:10px;font-weight:800;color:#8394A5;">Hasta</label>
+            <input id="rosterEffectiveEnd" type="date" class="roster-input" style="width:130px;">
             <button type="button" class="roster-toolbar-btn" onclick="exportCsv()">Descargar roster efectivo CSV</button>
         </div>
     </div>
@@ -488,10 +169,7 @@
 <div id="agentModal" class="modal-backdrop hidden">
   <div class="modal modal-lg">
     <div class="modal-header">
-      <div>
-        <h3 class="modal-title" id="agentModalTitle">Nuevo agente</h3>
-        <p class="modal-sub">Los horarios se guardan con formato HH:MM-HH:MM o DD-DD (descanso).</p>
-      </div>
+      <div><h3 class="modal-title" id="agentModalTitle">Nuevo agente</h3><p class="modal-sub">Los horarios se guardan con formato HH:MM-HH:MM o DD-DD.</p></div>
       <button class="modal-close" onclick="closeAgentModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -508,14 +186,12 @@
           <div class="field"><label>Email</label><input id="fldEmail" type="email" class="roster-input" maxlength="120"></div>
           <div class="field"><label>Fecha ingreso</label><input id="fldHireDate" type="date" class="roster-input"></div>
         </div>
-
         <div class="form-section-title">Asignación</div>
         <div class="form-grid">
           <div class="field"><label>Campaña *</label><input id="fldCampaign" class="roster-input" list="campaignList" required maxlength="120"></div>
           <div class="field"><label>Canal</label><select id="fldChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
           <datalist id="campaignList"></datalist>
         </div>
-
         <div class="form-section-title">Horario semanal</div>
         <div class="form-grid">
           <div class="field"><label>Lunes</label><input id="fldLun" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
@@ -526,11 +202,10 @@
           <div class="field"><label>Sábado</label><input id="fldSab" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
           <div class="field"><label>Domingo</label><input id="fldDom" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
         </div>
-
         <div class="form-section-title">Notas</div>
         <div class="form-grid">
           <div class="field field-full"><label>Comentarios</label><input id="fldNotes" class="roster-input" maxlength="500"></div>
-          <div class="field field-full"><label>Motivo del cambio (historial)</label><input id="fldReason" class="roster-input" maxlength="500" placeholder="Ej. Alta, corrección de campaña, ajuste de horario…"></div>
+          <div class="field field-full"><label>Motivo del cambio (historial)</label><input id="fldReason" class="roster-input" maxlength="500"></div>
         </div>
       </form>
     </div>
@@ -545,18 +220,15 @@
 <div id="terminateModal" class="modal-backdrop hidden">
   <div class="modal">
     <div class="modal-header">
-      <div>
-        <h3 class="modal-title" id="terminateTitle">Registrar baja</h3>
-        <p class="modal-sub" id="terminateSub">La baja quedará registrada con fecha y motivo.</p>
-      </div>
+      <div><h3 class="modal-title" id="terminateTitle">Registrar baja</h3><p class="modal-sub" id="terminateSub"></p></div>
       <button class="modal-close" onclick="closeTerminateModal()">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="terminateAgentId">
       <div class="form-grid">
         <div class="field field-full"><label>Fecha de baja *</label><input id="terminateDate" type="date" class="roster-input" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="terminateReason" class="roster-input" maxlength="500" placeholder="Renuncia, término de contrato, desempeño…"></div>
-        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:11px;color:#41536A;cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
+        <div class="field field-full"><label>Motivo</label><input id="terminateReason" class="roster-input" maxlength="500"></div>
+        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:11px;color:#41536A;cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -570,10 +242,7 @@
 <div id="transferModal" class="modal-backdrop hidden">
   <div class="modal">
     <div class="modal-header">
-      <div>
-        <h3 class="modal-title" id="transferTitle">Transferir campaña</h3>
-        <p class="modal-sub" id="transferSub">La campaña se actualizará y la transferencia quedará en el historial.</p>
-      </div>
+      <div><h3 class="modal-title" id="transferTitle">Transferir campaña</h3><p class="modal-sub" id="transferSub"></p></div>
       <button class="modal-close" onclick="closeTransferModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -582,7 +251,7 @@
         <div class="field field-full"><label>Campaña destino *</label><input id="transferCampaign" class="roster-input" list="campaignList" required maxlength="120"></div>
         <div class="field"><label>Canal destino</label><select id="transferChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
         <div class="field"><label>Fecha efectiva *</label><input id="transferDate" type="date" class="roster-input" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="transferReason" class="roster-input" maxlength="500" placeholder="Cierre de campaña, reorganización…"></div>
+        <div class="field field-full"><label>Motivo</label><input id="transferReason" class="roster-input" maxlength="500"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -595,14 +264,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const state = {
-  agents: [],
-  campaigns: [],
-  supervisors: [],
-  coordinators: [],
-  debounceTimer: null,
-  editingAgent: null,
-};
+const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], debounceTimer: null, editingAgent: null };
 
 const api = {
   async get(url) {
@@ -612,11 +274,7 @@ const api = {
     return data;
   },
   async send(method, url, body) {
-    const r = await fetch(url, {
-      method,
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body || {})
-    });
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {}) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     return data;
@@ -642,14 +300,9 @@ async function refreshAll() {
 
 async function refreshFilters() {
   try {
-    const [c, s] = await Promise.all([
-      api.get('/api/hc/campaigns'),
-      api.get('/api/hc/supervisors')
-    ]);
+    const [c, s] = await Promise.all([ api.get('/api/hc/campaigns'), api.get('/api/hc/supervisors') ]);
     state.campaigns = c.campaigns || [];
     state.supervisors = s.supervisors || [];
-    
-    // Asumimos coordinadores derivados de los agentes para evitar endpoint extra
     const agentRes = await api.get('/api/hc/agents');
     state.coordinators = [...new Set(agentRes.agents.map(a => a.coordinator).filter(Boolean))].sort();
 
@@ -660,11 +313,9 @@ async function refreshFilters() {
         sel.innerHTML = `<option value="">${defaultText}</option>` + items.map(x => `<option>${escape(x)}</option>`).join('');
         sel.value = items.includes(current) ? current : '';
     };
-
     setOptions('filterCampaign', state.campaigns, 'Todas las campañas');
     setOptions('filterSupervisor', state.supervisors, 'Todos los supervisores');
     setOptions('filterCoordinator', state.coordinators, 'Todos los coordinadores');
-
     document.getElementById('campaignList').innerHTML = state.campaigns.map(x => `<option value="${escape(x)}"></option>`).join('');
     document.getElementById('supervisorList').innerHTML = state.supervisors.map(x => `<option value="${escape(x)}"></option>`).join('');
   } catch (e) { console.warn('refreshFilters:', e); }
@@ -685,19 +336,16 @@ async function refreshMetrics() {
 
 async function loadAgents() {
   const params = new URLSearchParams();
-  const map = {
-    campaign: 'filterCampaign',
-    channel: 'filterChannel',
-    supervisor: 'filterSupervisor',
-    status: 'filterStatus',
-    search: 'filterSearch'
-  };
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', status: 'filterStatus', search: 'filterSearch' };
   Object.entries(map).forEach(([k, id]) => {
     const v = document.getElementById(id).value.trim();
     if (v) params.set(k, v);
   });
-  const coord = document.getElementById('filterCoordinator').value.trim();
-  if (coord) params.set('search', coord); // Búsqueda simple para coordinador
+  
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  if (start) params.set('startDate', start);
+  if (end) params.set('endDate', end);
 
   try {
     const data = await api.get('/api/hc/agents?' + params.toString());
@@ -716,6 +364,11 @@ function renderAgents() {
   body.innerHTML = state.agents.map(a => {
     const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
     let statusBadge = isBaja ? '<span class="roster-status inactive">Baja</span>' : '<span class="roster-status active">Activo</span>';
+
+    // Aquí asumimos que el backend ya filtra por status. Si el status es vacación o incapacidad, lo mostramos visualmente si el filtro está activo.
+    const selectedStatus = document.getElementById('filterStatus').value;
+    if (selectedStatus === 'Vacación') statusBadge = '<span class="roster-status vacation">Vacación</span>';
+    if (selectedStatus === 'Incapacidad') statusBadge = '<span class="roster-status incapacity">Incapacidad</span>';
 
     const sched = a.schedules || {};
     const dayChip = k => {
@@ -747,9 +400,7 @@ function renderAgents() {
   }).join('');
 }
 
-function escape(s) {
-  return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-}
+function escape(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
 
 function openAgentModal(agentId = null) {
@@ -759,38 +410,24 @@ function openAgentModal(agentId = null) {
   const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
   const fld = id => document.getElementById(id);
 
-  fld('fldAgentId').value = a?.agentId || '';
-  fld('fldAgentId').disabled = !!a;
-  fld('fldFullName').value = a?.fullName || '';
-  fld('fldSupervisor').value = a?.supervisor || '';
-  fld('fldCoordinator').value = a?.coordinator || '';
-  fld('fldCampaign').value = a?.campaign || '';
-  fld('fldChannel').value = a?.channel || 'Llamadas';
-  fld('fldEmail').value = a?.email || '';
-  fld('fldEmployeeNumber').value = a?.employeeNumber || '';
-  fld('fldHireDate').value = (a?.hireDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
-  fld('fldNotes').value = a?.notes || '';
-  fld('fldReason').value = '';
+  fld('fldAgentId').value = a?.agentId || ''; fld('fldAgentId').disabled = !!a;
+  fld('fldFullName').value = a?.fullName || ''; fld('fldSupervisor').value = a?.supervisor || '';
+  fld('fldCoordinator').value = a?.coordinator || ''; fld('fldCampaign').value = a?.campaign || '';
+  fld('fldChannel').value = a?.channel || 'Llamadas'; fld('fldEmail').value = a?.email || '';
+  fld('fldEmployeeNumber').value = a?.employeeNumber || ''; fld('fldHireDate').value = (a?.hireDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  fld('fldNotes').value = a?.notes || ''; fld('fldReason').value = '';
   const sched = a?.schedules || {};
-  fld('fldLun').value = sched.Lunes || 'DD-DD';
-  fld('fldMar').value = sched.Martes || 'DD-DD';
-  fld('fldMie').value = sched['Miércoles'] || 'DD-DD';
-  fld('fldJue').value = sched.Jueves || 'DD-DD';
-  fld('fldVie').value = sched.Viernes || 'DD-DD';
-  fld('fldSab').value = sched['Sábado'] || 'DD-DD';
+  fld('fldLun').value = sched.Lunes || 'DD-DD'; fld('fldMar').value = sched.Martes || 'DD-DD';
+  fld('fldMie').value = sched['Miércoles'] || 'DD-DD'; fld('fldJue').value = sched.Jueves || 'DD-DD';
+  fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
   fld('fldDom').value = sched.Domingo || 'DD-DD';
-
   document.getElementById('agentModal').classList.remove('hidden');
 }
-function closeAgentModal() {
-  document.getElementById('agentModal').classList.add('hidden');
-  state.editingAgent = null;
-}
+function closeAgentModal() { document.getElementById('agentModal').classList.add('hidden'); state.editingAgent = null; }
 
 async function saveAgent(event) {
   event.preventDefault();
-  const btn = document.getElementById('agentSaveBtn');
-  btn.disabled = true;
+  const btn = document.getElementById('agentSaveBtn'); btn.disabled = true;
   try {
     const payload = {
       agentId: document.getElementById('fldAgentId').value.trim(),
@@ -806,32 +443,19 @@ async function saveAgent(event) {
       reason: document.getElementById('fldReason').value.trim(),
       actorMode: 'operaciones',
       schedules: {
-        'Lunes': document.getElementById('fldLun').value,
-        'Martes': document.getElementById('fldMar').value,
-        'Miércoles': document.getElementById('fldMie').value,
-        'Jueves': document.getElementById('fldJue').value,
-        'Viernes': document.getElementById('fldVie').value,
-        'Sábado': document.getElementById('fldSab').value,
+        'Lunes': document.getElementById('fldLun').value, 'Martes': document.getElementById('fldMar').value,
+        'Miércoles': document.getElementById('fldMie').value, 'Jueves': document.getElementById('fldJue').value,
+        'Viernes': document.getElementById('fldVie').value, 'Sábado': document.getElementById('fldSab').value,
         'Domingo': document.getElementById('fldDom').value
       }
     };
     if (!payload.agentId) throw new Error('El ID del agente es obligatorio.');
     if (!payload.campaign) throw new Error('La campaña es obligatoria.');
 
-    if (state.editingAgent) {
-      await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload);
-      toast(`Agente actualizado.`);
-    } else {
-      await api.send('POST', '/api/hc/agents', payload);
-      toast(`Agente creado.`);
-    }
-    closeAgentModal();
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+    if (state.editingAgent) { await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload); toast(`Agente actualizado.`); }
+    else { await api.send('POST', '/api/hc/agents', payload); toast(`Agente creado.`); }
+    closeAgentModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
 
 function openTerminateModal(agentId) {
@@ -842,33 +466,18 @@ function openTerminateModal(agentId) {
   document.getElementById('terminateReason').value = '';
   document.getElementById('terminateModal').classList.remove('hidden');
 }
-function closeTerminateModal() {
-  document.getElementById('terminateModal').classList.add('hidden');
-}
+function closeTerminateModal() { document.getElementById('terminateModal').classList.add('hidden'); }
 
 async function submitTermination() {
-  const btn = document.getElementById('terminateBtn');
-  btn.disabled = true;
+  const btn = document.getElementById('terminateBtn'); btn.disabled = true;
   try {
     const date = document.getElementById('terminateDate').value;
     const reason = document.getElementById('terminateReason').value.trim();
     const rehireable = document.getElementById('terminateRehireable').checked;
     const id = document.getElementById('terminateAgentId').value;
-    
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, {
-      terminationDate: date,
-      reason: reason || 'Baja registrada',
-      rehireable,
-      actorMode: 'operaciones'
-    });
-    toast(`Baja registrada.`);
-    closeTerminateModal();
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable, actorMode: 'operaciones' });
+    toast(`Baja registrada.`); closeTerminateModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
 
 function openTransferModal(agentId) {
@@ -881,13 +490,10 @@ function openTransferModal(agentId) {
   document.getElementById('transferReason').value = '';
   document.getElementById('transferModal').classList.remove('hidden');
 }
-function closeTransferModal() {
-  document.getElementById('transferModal').classList.add('hidden');
-}
+function closeTransferModal() { document.getElementById('transferModal').classList.add('hidden'); }
 
 async function submitTransfer() {
-  const btn = document.getElementById('transferBtn');
-  btn.disabled = true;
+  const btn = document.getElementById('transferBtn'); btn.disabled = true;
   try {
     const id = document.getElementById('transferAgentId').value;
     const toCampaign = document.getElementById('transferCampaign').value.trim();
@@ -895,61 +501,48 @@ async function submitTransfer() {
     const effectiveDate = document.getElementById('transferDate').value;
     const reason = document.getElementById('transferReason').value.trim();
     if (!toCampaign) throw new Error('Indica la campaña destino.');
-    
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, {
-      toCampaign, toChannel, effectiveDate,
-      reason: reason || 'Transferencia de campaña',
-      actorMode: 'operaciones'
-    });
-    toast(`Transferencia registrada.`);
-    closeTransferModal();
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-  }
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { toCampaign, toChannel, effectiveDate, reason: reason || 'Transferencia de campaña', actorMode: 'operaciones' });
+    toast(`Transferencia registrada.`); closeTransferModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
 
 async function reactivateAgent(agentId) {
   if (!confirm(`¿Reactivar a ${agentId}?`)) return;
   try {
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, {
-      reason: 'Reactivación desde tablero de Operaciones',
-      actorMode: 'operaciones'
-    });
-    toast(`Agente reactivado.`);
-    await refreshAll();
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { reason: 'Reactivación desde tablero de Operaciones', actorMode: 'operaciones' });
+    toast(`Agente reactivado.`); await refreshAll();
   } catch (e) { toast(e.message, 'error'); }
 }
 
 function downloadTemplate() { window.location.href = '/api/hc/template'; }
-function exportCsv() { window.location.href = '/api/hc/export'; }
+function exportCsv() {
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  let url = '/api/hc/export';
+  if (start && end) url += `?startDate=${start}&endDate=${end}`;
+  window.location.href = url;
+}
 
 async function importFile(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) {
-    event.target.value = '';
-    return;
-  }
+  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) { event.target.value = ''; return; }
   try {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('actorMode', 'operaciones');
+    const fd = new FormData(); fd.append('file', file); fd.append('actorMode', 'operaciones');
     const r = await fetch('/api/hc/import', {method: 'POST', body: fd});
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Error al importar.');
-    toast(`Importación: ${data.imported} agente(s) procesado(s).`);
-    await refreshAll();
-  } catch (e) {
-    toast(e.message, 'error');
-  } finally {
-    event.target.value = '';
-  }
+    toast(`Importación: ${data.imported} agente(s) procesado(s).`); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { event.target.value = ''; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Inicializar fechas por defecto del descargador (primer día del mes al día de hoy)
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  document.getElementById('rosterEffectiveStart').value = firstDay.toISOString().slice(0, 10);
+  document.getElementById('rosterEffectiveEnd').value = today.toISOString().slice(0, 10);
+  
   refreshAll();
 });
 </script>
