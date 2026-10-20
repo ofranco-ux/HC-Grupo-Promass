@@ -378,9 +378,9 @@ function debounceUpdateDashboard() {
   state.debounceTimer = setTimeout(updateDashboard, 300);
 }
 
-function updateDashboard() {
-  loadAgents();
-  refreshMetrics();
+async function updateDashboard() {
+  await loadAgents();
+  await refreshMetrics();
 }
 
 async function refreshAll() {
@@ -427,8 +427,14 @@ async function refreshMetrics() {
     const m = await api.get('/api/hc/metrics?' + params.toString());
     document.getElementById('kpiActive').textContent = m.active;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
-    document.getElementById('kpiSupervisors').textContent = state.supervisors.length;
-    document.getElementById('kpiCoordinators').textContent = state.coordinators.length;
+    
+    // Calcular supervisores y coordinadores desde los agentes actuales filtrados
+    const uniqueSupervisors = new Set(state.agents.map(a => (a.supervisor || '').trim()).filter(Boolean));
+    const uniqueCoordinators = new Set(state.agents.map(a => (a.coordinator || '').trim()).filter(Boolean));
+    
+    document.getElementById('kpiSupervisors').textContent = uniqueSupervisors.size;
+    document.getElementById('kpiCoordinators').textContent = uniqueCoordinators.size;
+    
     document.getElementById('kpiTerminations').textContent = m.terminations;
     document.getElementById('kpiNetChange').textContent = `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
     const rotation = Number(m.attritionPercent ?? m.attrition ?? 0);
