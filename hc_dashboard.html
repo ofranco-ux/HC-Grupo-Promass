@@ -186,7 +186,6 @@
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#83D5A6;box-shadow:0 0 8px #83D5A6;"></span> Sincronizado
             </span>
             <button class="roster-head-btn secondary" onclick="downloadTemplate()">Plantilla</button>
-            <!-- BOTÓN MODIFICADO: Exportar Base -->
             <button class="roster-head-btn secondary" onclick="exportBaseCsv()">Exportar</button>
             <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
             <button class="roster-head-btn secondary" onclick="openAbsenceModal()">+ Incapacidad/Vacaciones</button>
@@ -235,7 +234,6 @@
             <input id="rosterEffectiveStart" type="date" onchange="updateDashboard()">
             <span style="color:#FFF;font-weight:700;">a</span>
             <input id="rosterEffectiveEnd" type="date" onchange="updateDashboard()">
-            <!-- BOTÓN MODIFICADO: Exportar Historial -->
             <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportHistoricalCsv()">Descargar CSV</button>
         </div>
     </div>
@@ -551,7 +549,9 @@ async function updateDashboard() {
 }
 
 async function refreshAll() {
-  await Promise.all([loadAgents(), refreshMetrics(), refreshFilters()]);
+  await loadAgents();
+  await refreshMetrics();
+  await refreshFilters();
 }
 
 async function refreshFilters() {
@@ -608,11 +608,9 @@ async function refreshMetrics() {
     document.getElementById('kpiNewHires').textContent = m.activeNewHires;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
     
-    const uniqueSupervisors = new Set(state.agents.map(a => (a.supervisor || '').trim()).filter(Boolean));
-    const uniqueCoordinators = new Set(state.agents.map(a => (a.coordinator || '').trim()).filter(Boolean));
-    
-    document.getElementById('kpiSupervisors').textContent = uniqueSupervisors.size;
-    document.getElementById('kpiCoordinators').textContent = uniqueCoordinators.size;
+    // AHORA USAMOS LOS VALORES DEL BACKEND
+    document.getElementById('kpiSupervisors').textContent = m.uniqueSupervisors || 0;
+    document.getElementById('kpiCoordinators').textContent = m.uniqueCoordinators || 0;
     
     document.getElementById('kpiTerminations').textContent = m.terminations;
     document.getElementById('kpiNetChange').textContent = `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
@@ -1094,12 +1092,10 @@ async function submitPerson() {
 
 function downloadTemplate() { window.location.href = '/api/hc/template'; }
 
-// NUEVA FUNCIÓN: Exportar solo los horarios base/permanentes
 function exportBaseCsv() {
   window.location.href = '/api/hc/export?mode=base';
 }
 
-// NUEVA FUNCIÓN: Exportar el roster histórico día por día
 function exportHistoricalCsv() {
   const start = document.getElementById('rosterEffectiveStart').value;
   const end = document.getElementById('rosterEffectiveEnd').value;
@@ -1137,7 +1133,6 @@ async function importFile(event) {
   event.target.value = ''; // reset
 }
 
-// Inicializar la carga de datos cuando la página esté lista
 document.addEventListener('DOMContentLoaded', () => {
     refreshAll();
 });
