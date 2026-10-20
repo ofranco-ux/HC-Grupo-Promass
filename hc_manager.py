@@ -540,35 +540,41 @@ def hc_metrics():
             [today] + args
         ).fetchall()]
 
-        # Contar bajas ocurridas dentro del periodo, no todos los agentes que
-        # actualmente tienen estado Baja. UNION evita duplicar las bajas que
-        # existen tanto en hc_terminations como en hc_agents.termination_date.
+        # Bajas del periodo: combina el historial de bajas con los datos del agente.
+        # También contempla registros antiguos que tengan estado Baja pero no tengan
+        # termination_date; para estos se usa la fecha de actualización como respaldo.
+        # UNION elimina duplicados y los filtros se aplican al agente relacionado.
         termination_sql = """
             SELECT COUNT(DISTINCT agent_id) FROM (
                 SELECT t.agent_id AS agent_id
                 FROM hc_terminations t
-                JOIN hc_agents a ON a.agent_id=t.agent_id
+                JOIN hc_agents a ON a.agent_id = t.agent_id
                 WHERE t.termination_date BETWEEN ? AND ?
         """
         termination_args = [start, end]
         if agent_where:
             termination_sql += agent_where
             termination_args.extend(args)
+
         termination_sql += """
                 UNION
                 SELECT a.agent_id AS agent_id
                 FROM hc_agents a
-                WHERE a.termination_date BETWEEN ? AND ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM hc_terminations t
-                    WHERE t.agent_id=a.agent_id AND t.termination_date=a.termination_date
-                  )
+                WHERE (
+                    a.termination_date BETWEEN ? AND ?
+                    OR (
+                        a.status = 'Baja'
+                        AND a.termination_date IS NULL
+                        AND substr(COALESCE(a.updated_at, ''), 1, 10) BETWEEN ? AND ?
+                    )
+                )
         """
-        termination_args.extend([start, end])
+        termination_args.extend([start, end, start, end])
         if agent_where:
             termination_sql += agent_where
             termination_args.extend(args)
-        terminations = conn.execute(termination_sql + ")", termination_args).fetchone()[0]
+        termination_sql += ")"
+        terminations = conn.execute(termination_sql, termination_args).fetchone()[0]
 
         q_hires = "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where
         new_hires = conn.execute(q_hires, [start, end] + args).fetchone()[0]
