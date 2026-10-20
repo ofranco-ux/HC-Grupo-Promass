@@ -562,9 +562,10 @@ def hc_import():
                 df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl')
             else:
                 try:
-                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig')
+                    # sep=None permite detectar automáticamente si es coma, punto y coma, etc.
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig', sep=None, engine='python')
                 except UnicodeDecodeError:
-                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1')
+                    df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1', sep=None, engine='python')
         else:
             if is_xlsx:
                 return jsonify({'error': 'Para leer Excel instala pandas y openpyxl.'}), 400
@@ -573,13 +574,20 @@ def hc_import():
                     raw = file_bytes.decode('utf-8-sig')
                 except UnicodeDecodeError:
                     raw = file_bytes.decode('latin-1')
-                df = [dict(r) for r in csv.DictReader(io.StringIO(raw))]
+                # Detectar separador
+                sep = ';' if ';' in raw.split('\n')[0] else ','
+                df = [dict(r) for r in csv.DictReader(io.StringIO(raw), delimiter=sep)]
     except Exception as e:
         return jsonify({'error': f'Error al procesar el archivo: {str(e)}'}), 400
 
     imported = 0
     errors = []
-    records = df.fillna('').to_dict('records') if HAS_PANDAS else list(df)
+    
+    # Si no hay pandas, df ya es una lista. Si hay, lo convertimos.
+    if HAS_PANDAS:
+        records = df.fillna('').to_dict('records')
+    else:
+        records = list(df)
     
     with HC_LOCK:
         conn = _conn()
