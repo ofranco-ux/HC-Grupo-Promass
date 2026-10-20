@@ -527,10 +527,21 @@ def hc_metrics():
             [today] + args
         ).fetchone()[0]
 
+        # HC inicial: incluye a los agentes que hoy aparecen como Baja sin fecha,
+        # porque para el ejercicio se consideran bajas del mes en curso. Para meses
+        # posteriores, esos registros heredados ya no forman parte del HC inicial.
+        month_start = datetime.now().strftime('%Y-%m-01')
+        next_month_date = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1)
+        next_month_start = next_month_date.strftime('%Y-%m-%d')
         active_at_start = conn.execute(
-            "SELECT COUNT(*) FROM hc_agents a WHERE (a.hire_date IS NULL OR a.hire_date <= ?) "
-            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
-            [start, start] + args
+            "SELECT COUNT(*) FROM hc_agents a WHERE "
+            "(a.hire_date IS NULL OR a.hire_date <= ?) "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?) "
+            "AND (COALESCE(a.status, '') <> 'Baja' OR "
+            "(a.termination_date IS NOT NULL AND a.termination_date > ?) OR "
+            "(a.termination_date IS NULL AND ? < ?))"
+            + agent_where,
+            [start, start, start, start, next_month_start] + args
         ).fetchone()[0]
 
         by_campaign = [dict(r) for r in conn.execute(
@@ -541,9 +552,9 @@ def hc_metrics():
         ).fetchall()]
 
         # Bajas del periodo: combina el historial de bajas con los datos del agente.
-        # También contempla registros antiguos que tengan estado Baja pero no tengan
-        # termination_date; para estos se usa la fecha de actualización como respaldo.
-        # UNION elimina duplicados y los filtros se aplican al agente relacionado.
+        # Regla transitoria: los registros con estado Baja y sin fecha se asignan al
+        # mes calendario en curso. A partir de que se capture termination_date,
+        # se contabilizan exclusivamente en el mes de esa fecha. UNION evita duplicados.
         termination_sql = """
             SELECT COUNT(DISTINCT agent_id) FROM (
                 SELECT t.agent_id AS agent_id
@@ -560,16 +571,19 @@ def hc_metrics():
                 UNION
                 SELECT a.agent_id AS agent_id
                 FROM hc_agents a
-                WHERE (
-                    a.termination_date BETWEEN ? AND ?
-                    OR (
-                        a.status = 'Baja'
-                        AND a.termination_date IS NULL
-                        AND substr(COALESCE(a.updated_at, ''), 1, 10) BETWEEN ? AND ?
-                    )
-                )
+                WHERE a.termination_date BETWEEN ? AND ?
         """
-        termination_args.extend([start, end, start, end])
+        termination_args.extend([start, end])
+        # Bajas heredadas sin fecha: contarlas como bajas del mes corriente solo
+        # cuando el periodo consultado se cruza con ese mes. No usar updated_at,
+        # porque no representa necesariamente la fecha efectiva de baja.
+        if start < next_month_start and end >= month_start:
+            termination_sql += """
+                UNION
+                SELECT a.agent_id AS agent_id
+                FROM hc_agents a
+                WHERE a.status = 'Baja' AND a.termination_date IS NULL
+            """
         if agent_where:
             termination_sql += agent_where
             termination_args.extend(args)
@@ -604,7 +618,9 @@ def hc_metrics():
             transfer_sql += " AND " + " AND ".join(transfer_filters)
         transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
 
-        attrition = round((terminations / active_at_start * 100), 2) if active_at_start > 0 else 0.0
+        # Mostrar rotación siempre como porcentaje numérico. Si el HC inicial es
+        # cero, no existe una base válida para calcular la tasa.
+        attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start else 0.0
         net_change = new_hires - terminations
     finally:
         conn.close()
