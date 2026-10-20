@@ -8,6 +8,7 @@ import io
 import json
 import sqlite3
 import threading
+import unicodedata
 from datetime import datetime, timedelta
 from flask import Flask, Blueprint, request, jsonify, send_file, send_from_directory
 
@@ -181,6 +182,9 @@ def _row_to_agent(row):
     if row['termination_date']:
         d['displayStatus'] = 'Baja programada' if row['termination_date'] > today else 'Baja'
         d['terminationPending'] = row['termination_date'] > today
+    elif str(row['status']).strip().title() == 'Baja':
+        d['displayStatus'] = 'Baja'
+        d['terminationPending'] = False
     else:
         d['displayStatus'] = 'Activo'
         d['terminationPending'] = False
@@ -396,7 +400,7 @@ def hc_reactivate_agent(agent_id):
             try:
                 before = _fetch_agent(conn, agent_id)
                 if not before: raise ValueError('Agente no encontrado.')
-                if not before.get('terminationDate'): raise ValueError('El agente ya está activo.')
+                if not before.get('terminationDate') and before.get('status') != 'Baja': raise ValueError('El agente ya está activo.')
                 new_hire = _validate_date(new_hire, 'fecha de reingreso') if new_hire else _today()
                 conn.execute("UPDATE hc_agents SET status='Activo', termination_date=NULL, termination_reason='', hire_date=?, updated_at=?, updated_by=? WHERE agent_id=?", (new_hire, _now(), actor, agent_id))
                 _log_history(conn, agent_id, 'agent_reactivated', before, {'hireDate': new_hire}, str(payload.get('reason') or 'Reactivación'), new_hire, actor)
@@ -546,6 +550,11 @@ def hc_export_csv():
         writer.writerow([r['agentId'], r['fullName'], r['supervisor'], r['coordinator'], r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', r['terminationDate'] or '', s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo'], r['email'], r['employeeNumber'], r['notes']])
     return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_export_{_today()}.csv')
 
+def _normalize_col(col_name):
+    # Normaliza unicode, remueve acentos y deja solo letras y números en minúscula
+    col = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
+    return re.sub(r'[^a-z0-9]', '', col.lower())
+
 @hc_bp.route('/api/hc/import', methods=['POST'])
 def hc_import():
     _init_db()
@@ -562,7 +571,6 @@ def hc_import():
                 df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl')
             else:
                 try:
-                    # sep=None permite detectar automáticamente si es coma, punto y coma, etc.
                     df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8-sig', sep=None, engine='python')
                 except UnicodeDecodeError:
                     df = pd.read_csv(io.BytesIO(file_bytes), encoding='latin-1', sep=None, engine='python')
@@ -574,7 +582,6 @@ def hc_import():
                     raw = file_bytes.decode('utf-8-sig')
                 except UnicodeDecodeError:
                     raw = file_bytes.decode('latin-1')
-                # Detectar separador
                 sep = ';' if ';' in raw.split('\n')[0] else ','
                 df = [dict(r) for r in csv.DictReader(io.StringIO(raw), delimiter=sep)]
     except Exception as e:
@@ -583,12 +590,20 @@ def hc_import():
     imported = 0
     errors = []
     
-    # Si no hay pandas, df ya es una lista. Si hay, lo convertimos.
     if HAS_PANDAS:
         records = df.fillna('').to_dict('records')
     else:
         records = list(df)
     
+    # Normalizar las llaves (columnas) del diccionario
+    normalized_records = []
+    for r in records:
+        new_r = {}
+        for k, v in r.items():
+            new_r[_normalize_col(k)] = v
+        normalized_records.append(new_r)
+    records = normalized_records
+
     with HC_LOCK:
         conn = _conn()
         try:
@@ -597,8 +612,9 @@ def hc_import():
                 try:
                     def get(*keys):
                         for k in keys:
-                            if k in row and row[k] is not None and str(row[k]).strip().lower() not in ('', 'nan', 'none'): 
-                                return str(row[k]).strip()
+                            nk = _normalize_col(k)
+                            if nk in row and row[nk] is not None and str(row[nk]).strip().lower() not in ('', 'nan', 'none'): 
+                                return str(row[nk]).strip()
                         return ''
                     
                     agent_id = get('ID Agente', 'agent_id', 'id')
@@ -617,21 +633,28 @@ def hc_import():
                             
                     schedules = {}
                     for d in ROSTER_DAYS:
-                        val = get(d, d.replace('á','a').replace('é','e').replace('í','i').replace('ó','o').replace('ú','u'))
+                        val = get(d)
                         try:
                             schedules[d] = _validate_schedule(val)
                         except ValueError:
                             schedules[d] = 'DD-DD'
 
+                    status = get('Estado') or 'Activo'
+                    if status.lower() in ('baja', 'inactivo'): 
+                        status = 'Baja'
+                    else:
+                        status = 'Activo'
+
                     now = _now()
                     
+                    # SQL con 21 placeholders
                     conn.execute("""
                         INSERT INTO hc_agents (
                             agent_id, full_name, supervisor, coordinator, campaign, channel, 
                             hire_date, email, employee_number, notes, 
                             lunes, martes, miercoles, jueves, viernes, sabado, domingo, 
                             status, created_at, updated_at, updated_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(agent_id) DO UPDATE SET
                             full_name=excluded.full_name,
                             supervisor=excluded.supervisor,
@@ -649,6 +672,7 @@ def hc_import():
                             viernes=excluded.viernes,
                             sabado=excluded.sabado,
                             domingo=excluded.domingo,
+                            status=excluded.status,
                             updated_at=excluded.updated_at,
                             updated_by=excluded.updated_by
                     """, (
@@ -657,7 +681,8 @@ def hc_import():
                         hire_date, get('Email'), get('Número Empleado'), get('Notas'),
                         schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
                         schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
-                        now, actor
+                        status,
+                        now, now, actor # 3 valores para created_at, updated_at, updated_by
                     ))
                     imported += 1
                 except Exception as e:
