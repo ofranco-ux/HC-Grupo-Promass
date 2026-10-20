@@ -161,6 +161,11 @@ def _normalize_channel(value):
     if 'chat' in raw or 'mensaje' in raw: return 'Chat'
     return 'Llamadas'
 
+def _normalize_col(col_name):
+    # Normaliza unicode, remueve acentos y deja solo letras y números en minúscula
+    col = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
+    return re.sub(r'[^a-z0-9]', '', col.lower())
+
 def _log_history(conn, agent_id, change_type, before, after, reason='', effective_date=None, actor='operaciones'):
     conn.execute("""INSERT INTO hc_history (agent_id, change_type, before_json, after_json, reason, effective_date, changed_at, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (agent_id, change_type, json.dumps(before, ensure_ascii=False) if before else None, json.dumps(after, ensure_ascii=False) if after else None, str(reason or '')[:500], effective_date, _now(), str(actor or 'operaciones')[:80]))
@@ -550,11 +555,6 @@ def hc_export_csv():
         writer.writerow([r['agentId'], r['fullName'], r['supervisor'], r['coordinator'], r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', r['terminationDate'] or '', s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo'], r['email'], r['employeeNumber'], r['notes']])
     return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_export_{_today()}.csv')
 
-def _normalize_col(col_name):
-    # Normaliza unicode, remueve acentos y deja solo letras y números en minúscula
-    col = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
-    return re.sub(r'[^a-z0-9]', '', col.lower())
-
 @hc_bp.route('/api/hc/import', methods=['POST'])
 def hc_import():
     _init_db()
@@ -595,7 +595,6 @@ def hc_import():
     else:
         records = list(df)
     
-    # Normalizar las llaves (columnas) del diccionario
     normalized_records = []
     for r in records:
         new_r = {}
@@ -639,22 +638,21 @@ def hc_import():
                         except ValueError:
                             schedules[d] = 'DD-DD'
 
-                    status = get('Estado') or 'Activo'
-                    if status.lower() in ('baja', 'inactivo'): 
-                        status = 'Baja'
-                    else:
-                        status = 'Activo'
+                    raw_status = get('Estado').lower()
+                    is_baja = raw_status in ('baja', 'inactivo')
+                    status = 'Baja' if is_baja else 'Activo'
+                    term_date = _today() if is_baja else None
 
                     now = _now()
                     
-                    # SQL con 21 placeholders
+                    # 1. Insertar o actualizar agente
                     conn.execute("""
                         INSERT INTO hc_agents (
                             agent_id, full_name, supervisor, coordinator, campaign, channel, 
                             hire_date, email, employee_number, notes, 
                             lunes, martes, miercoles, jueves, viernes, sabado, domingo, 
-                            status, created_at, updated_at, updated_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            status, termination_date, created_at, updated_at, updated_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(agent_id) DO UPDATE SET
                             full_name=excluded.full_name,
                             supervisor=excluded.supervisor,
@@ -673,6 +671,7 @@ def hc_import():
                             sabado=excluded.sabado,
                             domingo=excluded.domingo,
                             status=excluded.status,
+                            termination_date=excluded.termination_date,
                             updated_at=excluded.updated_at,
                             updated_by=excluded.updated_by
                     """, (
@@ -681,9 +680,18 @@ def hc_import():
                         hire_date, get('Email'), get('Número Empleado'), get('Notas'),
                         schedules['Lunes'], schedules['Martes'], schedules['Miércoles'], schedules['Jueves'],
                         schedules['Viernes'], schedules['Sábado'], schedules['Domingo'],
-                        status,
-                        now, now, actor # 3 valores para created_at, updated_at, updated_by
+                        status, term_date,
+                        now, now, actor
                     ))
+
+                    # 2. Si es baja, registrar en la tabla de terminaciones para que cuente en los KPIs
+                    if is_baja:
+                        conn.execute("""
+                            INSERT INTO hc_terminations (agent_id, termination_date, reason, rehireable, created_at, created_by)
+                            SELECT ?, ?, 'Importación CSV', 1, ?, ?
+                            WHERE NOT EXISTS (SELECT 1 FROM hc_terminations WHERE agent_id = ?)
+                        """, (agent_id, term_date, now, actor, agent_id))
+
                     imported += 1
                 except Exception as e:
                     errors.append({'row': idx + 2, 'error': str(e)})
