@@ -475,7 +475,7 @@ function renderAgents() {
         <td>${statusBadge}</td>
         <td>
           <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
-          ${a.terminationDate
+          ${a.terminationDate || a.status === 'Baja'
               ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
               : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
                  <button class="roster-edit-btn" style="color:#991B1B" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
@@ -548,7 +548,7 @@ function renderTimelineChart() {
 
     const dayIndex = days.indexOf(state.chartDay);
     const activeAgents = state.agents.filter(a => a.status === 'Activo');
-    
+
     let totalCoverage = new Array(48).fill(0);
     let agentsCovering = 0;
 
