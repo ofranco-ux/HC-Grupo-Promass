@@ -844,7 +844,7 @@ async function openAgentModal(agentId = null) {
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
   fld('fldRole').disabled = isEdit;
-  fld('fldIsNewHire').disabled = isEdit;
+  // fld('fldIsNewHire').disabled = isEdit; // Desbloqueado para permitir cambio de New Hire a Operativo
 
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
