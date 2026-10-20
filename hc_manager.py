@@ -491,63 +491,123 @@ def hc_metrics():
     _init_db()
     today = _today()
     default_start = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    start = _validate_date(request.args.get('start', default_start), 'start')
-    end = _validate_date(request.args.get('end', today), 'end')
-    
+    start = _validate_date(request.args.get('start') or default_start, 'start')
+    end = _validate_date(request.args.get('end') or today, 'end')
+    if start > end:
+        return jsonify({'error': 'La fecha inicial no puede ser posterior a la fecha final.'}), 400
+
     campaign = request.args.get('campaign', '').strip()
     channel = request.args.get('channel', '').strip()
     supervisor = request.args.get('supervisor', '').strip()
     search = request.args.get('search', '').strip().lower()
 
+    # Los filtros de agentes deben calificarse con "a": las métricas también
+    # consultan tablas de bajas/transferencias que no tienen las mismas columnas.
+    filters = []
+    args = []
+    if campaign:
+        filters.append("a.campaign=?")
+        args.append(campaign)
+    if channel:
+        filters.append("a.channel=?")
+        args.append(channel)
+    if supervisor:
+        filters.append("a.supervisor=?")
+        args.append(supervisor)
+    if search:
+        filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
+        args.extend([f"%{search}%", f"%{search}%"])
+    agent_where = (" AND " + " AND ".join(filters)) if filters else ""
+
     conn = _conn()
     try:
-        where_clause = " WHERE 1=1"
-        args = []
+        active = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE a.status='Activo' "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [today] + args
+        ).fetchone()[0]
+
+        active_at_start = conn.execute(
+            "SELECT COUNT(*) FROM hc_agents a WHERE (a.hire_date IS NULL OR a.hire_date <= ?) "
+            "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
+            [start, start] + args
+        ).fetchone()[0]
+
+        by_campaign = [dict(r) for r in conn.execute(
+            "SELECT a.campaign, a.channel, COUNT(*) AS count FROM hc_agents a "
+            "WHERE a.status='Activo' AND (a.termination_date IS NULL OR a.termination_date > ?)"
+            + agent_where + " GROUP BY a.campaign, a.channel ORDER BY count DESC",
+            [today] + args
+        ).fetchall()]
+
+        # Contar bajas ocurridas dentro del periodo, no todos los agentes que
+        # actualmente tienen estado Baja. UNION evita duplicar las bajas que
+        # existen tanto en hc_terminations como en hc_agents.termination_date.
+        termination_sql = """
+            SELECT COUNT(DISTINCT agent_id) FROM (
+                SELECT t.agent_id AS agent_id
+                FROM hc_terminations t
+                JOIN hc_agents a ON a.agent_id=t.agent_id
+                WHERE t.termination_date BETWEEN ? AND ?
+        """
+        termination_args = [start, end]
+        if agent_where:
+            termination_sql += agent_where
+            termination_args.extend(args)
+        termination_sql += """
+                UNION
+                SELECT a.agent_id AS agent_id
+                FROM hc_agents a
+                WHERE a.termination_date BETWEEN ? AND ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM hc_terminations t
+                    WHERE t.agent_id=a.agent_id AND t.termination_date=a.termination_date
+                  )
+        """
+        termination_args.extend([start, end])
+        if agent_where:
+            termination_sql += agent_where
+            termination_args.extend(args)
+        terminations = conn.execute(termination_sql + ")", termination_args).fetchone()[0]
+
+        q_hires = "SELECT COUNT(*) FROM hc_agents a WHERE a.hire_date BETWEEN ? AND ?" + agent_where
+        new_hires = conn.execute(q_hires, [start, end] + args).fetchone()[0]
+
+        # Transferencias: los filtros se aplican al agente y la campaña
+        # seleccionada puede ser origen o destino del movimiento.
+        transfer_filters = []
+        transfer_args = [start, end]
         if campaign:
-            where_clause += " AND campaign=?"
-            args.append(campaign)
+            transfer_filters.append("(t.from_campaign=? OR t.to_campaign=?)")
+            transfer_args.extend([campaign, campaign])
         if channel:
-            where_clause += " AND channel=?"
-            args.append(channel)
+            transfer_filters.append("(t.from_channel=? OR t.to_channel=?)")
+            transfer_args.extend([channel, channel])
         if supervisor:
-            where_clause += " AND supervisor=?"
-            args.append(supervisor)
+            transfer_filters.append("a.supervisor=?")
+            transfer_args.append(supervisor)
         if search:
-            where_clause += " AND (lower(agent_id) LIKE ? OR lower(full_name) LIKE ?)"
-            args.extend([f"%{search}%", f"%{search}%"])
-
-        # 1. Agentes Activos (respetando filtros)
-        q_active = f"SELECT COUNT(*) FROM hc_agents{where_clause} AND status='Activo' AND (termination_date IS NULL OR termination_date > ?)"
-        active = conn.execute(q_active, args + [today]).fetchone()[0]
-
-        # 2. Agentes Activos al inicio del periodo (respetando filtros)
-        q_start = f"SELECT COUNT(*) FROM hc_agents{where_clause} AND (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date > ?)"
-        active_at_start = conn.execute(q_start, args + [start, start]).fetchone()[0]
-
-        # 3. Distribución por campaña (respetando filtros)
-        q_camp = f"SELECT campaign, channel, COUNT(*) AS count FROM hc_agents{where_clause} AND status='Activo' AND (termination_date IS NULL OR termination_date > ?) GROUP BY campaign, channel ORDER BY count DESC"
-        by_campaign = [dict(r) for r in conn.execute(q_camp, args + [today]).fetchall()]
-
-        # 4. Bajas (Contamos los agentes que su estado actual sea Baja y cumplan el filtro)
-        q_bajas = f"SELECT COUNT(*) FROM hc_agents{where_clause} AND status='Baja'"
-        terminations = conn.execute(q_bajas, args).fetchone()[0]
-
-        # 5. Altas (respetando filtros y fechas)
-        q_hires = f"SELECT COUNT(*) FROM hc_agents{where_clause} AND hire_date BETWEEN ? AND ?"
-        new_hires = conn.execute(q_hires, args + [start, end]).fetchone()[0]
-
-        # 6. Transferencias (respetando filtros)
-        q_trans = f"SELECT COUNT(*) FROM hc_transfers{where_clause} AND effective_date BETWEEN ? AND ?"
-        transfers = conn.execute(q_trans, args + [start, end]).fetchone()[0]
+            transfer_filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
+            transfer_args.extend([f"%{search}%", f"%{search}%"])
+        transfer_sql = """
+            SELECT COUNT(*) FROM hc_transfers t
+            LEFT JOIN hc_agents a ON a.agent_id=t.agent_id
+            WHERE t.effective_date BETWEEN ? AND ?
+        """
+        if transfer_filters:
+            transfer_sql += " AND " + " AND ".join(transfer_filters)
+        transfers = conn.execute(transfer_sql, transfer_args).fetchone()[0]
 
         attrition = round((terminations / active_at_start * 100), 2) if active_at_start > 0 else 0.0
         net_change = new_hires - terminations
-    finally: conn.close()
+    finally:
+        conn.close()
 
     return jsonify({
-        'active': active, 'activeAtStart': active_at_start, 'byCampaign': by_campaign, 
-        'terminations': terminations, 'newHires': new_hires, 'transfers': transfers, 
-        'attrition': attrition, 'netChange': net_change, 'periodStart': start, 'periodEnd': end, 'asOf': today
+        'active': active, 'activeAtStart': active_at_start, 'byCampaign': by_campaign,
+        'terminations': terminations, 'newHires': new_hires, 'transfers': transfers,
+        'attrition': attrition, 'netChange': net_change, 'periodStart': start,
+        'periodEnd': end, 'asOf': today
     }), 200
 
 @hc_bp.route('/api/hc/campaigns', methods=['GET'])
