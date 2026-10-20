@@ -176,4 +176,630 @@
         <div class="roster-kpi is-primary"><div class="roster-kpi-label">Agentes activos</div><div class="roster-kpi-value" id="kpiActive">—</div><div class="roster-kpi-detail">Plantilla vigente</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Campañas</div><div class="roster-kpi-value" id="kpiCampaigns">—</div><div class="roster-kpi-detail">Con roster asignado</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores
+        <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Bajas del periodo</div><div class="roster-kpi-value" id="kpiTerminations">—</div><div class="roster-kpi-detail" id="kpiNetChange">—</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Rotación del periodo</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail" id="kpiAttritionDetail">Bajas ÷ HC al inicio × 100</div></div>
+    </div>
+
+    <!-- FILTROS -->
+    <div class="roster-toolbar">
+        <select id="filterCampaign" class="roster-select" onchange="updateDashboard()"><option value="">Todas las campañas</option></select>
+        <select id="filterSupervisor" class="roster-select" onchange="updateDashboard()"><option value="">Todos los supervisores</option></select>
+        <select id="filterCoordinator" class="roster-select" onchange="updateDashboard()"><option value="">Todos los coordinadores</option></select>
+        <select id="filterChannel" class="roster-select" onchange="updateDashboard()"><option value="">Todos los canales</option><option>Llamadas</option><option>Chat</option></select>
+        <select id="filterStatus" class="roster-select" onchange="updateDashboard()">
+            <option value="">Todos los estados</option>
+            <option value="Activo">Activo</option>
+            <option value="Baja">Baja</option>
+            <option value="Vacación">Vacación</option>
+            <option value="Incapacidad">Incapacidad</option>
+        </select>
+        <input id="filterSearch" class="roster-input" placeholder="Buscar ID, nombre..." oninput="debounceUpdateDashboard()">
+    </div>
+
+    <div class="download-block">
+        <div>
+            <strong>Descargar roster por fechas</strong>
+            <p>Una fila por agente y fecha. Incluye ajustes temporales, vacaciones e incapacidades.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input id="rosterEffectiveStart" type="date" onchange="updateDashboard()">
+            <span style="color:#FFF;font-weight:700;">a</span>
+            <input id="rosterEffectiveEnd" type="date" onchange="updateDashboard()">
+            <button type="button" class="roster-toolbar-btn" style="background:var(--gold); color:var(--navy); border:none;" onclick="exportCsv()">Descargar CSV</button>
+        </div>
+    </div>
+
+    <div class="roster-content">
+        <div class="roster-agents-scroll">
+            <table class="roster-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox"></th>
+                        <th>ID Agente</th><th>Nombre Completo</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
+                        <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th>
+                        <th>Estado</th><th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="agentsBody">
+                    <tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Cargando roster operativo…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- CRONOGRAMA -->
+        <div class="schedule-section">
+            <div class="schedule-header">
+                <div>
+                    <div class="schedule-title">Distribución de horarios por franja</div>
+                    <div style="font-size:10px; color:#64748B; margin-top:4px;">Cobertura del día calendario completo, de 00:00 a 24:00, en intervalos de 30 minutos. Incluye el arrastre de turnos nocturnos del día anterior.</div>
+                </div>
+                <div class="schedule-tabs" id="scheduleTabs"></div>
+            </div>
+            <div class="schedule-metrics">
+                <div class="schedule-metric"><div class="schedule-metric-label">Agentes que cubren</div><div class="schedule-metric-value" id="chartKpiAgents">0</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Pico simultáneo</div><div class="schedule-metric-value" id="chartKpiPeak">0 HC</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura desde</div><div class="schedule-metric-value" id="chartKpiStart">—</div></div>
+                <div class="schedule-metric"><div class="schedule-metric-label">Cobertura hasta</div><div class="schedule-metric-value" id="chartKpiEnd">—</div></div>
+            </div>
+            <div class="schedule-chart-container" id="scheduleChart">
+                <!-- Las barras se inyectan con JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Nuevo/Editar Agente -->
+<div id="agentModal" class="modal-backdrop hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div><h3 class="modal-title" id="agentModalTitle">Nuevo agente</h3><p class="modal-sub">Los horarios se guardan con formato HH:MM-HH:MM o DD-DD.</p></div>
+      <button class="modal-close" onclick="closeAgentModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="agentForm" onsubmit="saveAgent(event)">
+        <input type="hidden" id="agentEditId">
+        <div class="form-section-title">Identificación</div>
+        <div class="form-grid">
+          <div class="field"><label>ID agente *</label><input id="fldAgentId" class="roster-input" required maxlength="40" placeholder="A-00001"></div>
+          <div class="field"><label>Número empleado</label><input id="fldEmployeeNumber" class="roster-input" maxlength="40"></div>
+          <div class="field field-full"><label>Nombre completo</label><input id="fldFullName" class="roster-input" maxlength="120" placeholder="Nombre Apellido"></div>
+          <div class="field"><label>Supervisor</label><input id="fldSupervisor" class="roster-input" list="supervisorList" maxlength="120"></div>
+          <div class="field"><label>Coordinador</label><input id="fldCoordinator" class="roster-input" maxlength="120"></div>
+          <datalist id="supervisorList"></datalist>
+          <div class="field"><label>Email</label><input id="fldEmail" type="email" class="roster-input" maxlength="120"></div>
+          <div class="field"><label>Fecha ingreso</label><input id="fldHireDate" type="date" class="roster-input"></div>
+        </div>
+        <div class="form-section-title">Asignación</div>
+        <div class="form-grid">
+          <div class="field"><label>Campaña *</label><input id="fldCampaign" class="roster-input" list="campaignList" required maxlength="120"></div>
+          <div class="field"><label>Canal</label><select id="fldChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
+          <datalist id="campaignList"></datalist>
+        </div>
+        <div class="form-section-title">Horario semanal</div>
+        <div class="form-grid">
+          <div class="field"><label>Lunes</label><input id="fldLun" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Martes</label><input id="fldMar" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Miércoles</label><input id="fldMie" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Jueves</label><input id="fldJue" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Viernes</label><input id="fldVie" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Sábado</label><input id="fldSab" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+          <div class="field"><label>Domingo</label><input id="fldDom" class="roster-input" placeholder="08:00-17:00 o DD-DD"></div>
+        </div>
+        <div class="form-section-title">Notas</div>
+        <div class="form-grid">
+          <div class="field field-full"><label>Comentarios</label><input id="fldNotes" class="roster-input" maxlength="500"></div>
+          <div class="field field-full"><label>Motivo del cambio (historial)</label><input id="fldReason" class="roster-input" maxlength="500"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAgentModal()">Cancelar</button>
+      <button class="btn-save" id="agentSaveBtn" onclick="document.getElementById('agentForm').requestSubmit()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Baja -->
+<div id="terminateModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div><h3 class="modal-title" id="terminateTitle">Registrar baja</h3><p class="modal-sub" id="terminateSub"></p></div>
+      <button class="modal-close" onclick="closeTerminateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="terminateAgentId">
+      <div class="form-grid">
+        <div class="field field-full"><label>Fecha de baja *</label><input id="terminateDate" type="date" class="roster-input" required></div>
+        <div class="field field-full"><label>Motivo</label><input id="terminateReason" class="roster-input" maxlength="500"></div>
+        <div class="field field-full"><label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:11px;color:#334155;cursor:pointer"><input id="terminateRehireable" type="checkbox" checked> Elegible para recontratación</label></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeTerminateModal()">Cancelar</button>
+      <button class="btn-save" id="terminateBtn" onclick="submitTermination()">Registrar baja</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Transferencia -->
+<div id="transferModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <div><h3 class="modal-title" id="transferTitle">Transferir campaña</h3><p class="modal-sub" id="transferSub"></p></div>
+      <button class="modal-close" onclick="closeTransferModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="transferAgentId">
+      <div class="form-grid">
+        <div class="field field-full"><label>Campaña destino *</label><input id="transferCampaign" class="roster-input" list="campaignList" required maxlength="120"></div>
+        <div class="field"><label>Canal destino</label><select id="transferChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
+        <div class="field"><label>Fecha efectiva *</label><input id="transferDate" type="date" class="roster-input" required></div>
+        <div class="field field-full"><label>Motivo</label><input id="transferReason" class="roster-input" maxlength="500"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeTransferModal()">Cancelar</button>
+      <button class="btn-save" id="transferBtn" onclick="submitTransfer()">Transferir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], debounceTimer: null, editingAgent: null, chartDay: 'Lunes' };
+
+const api = {
+  async get(url) {
+    const r = await fetch(url, {cache: 'no-store'});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  },
+  async send(method, url, body) {
+    const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  }
+};
+
+function toast(msg, kind = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast is-visible ${kind === 'error' ? 'is-error' : ''}`;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('is-visible'), 4000);
+}
+
+function debounceUpdateDashboard() {
+  clearTimeout(state.debounceTimer);
+  state.debounceTimer = setTimeout(updateDashboard, 300);
+}
+
+function updateDashboard() {
+  loadAgents();
+  refreshMetrics();
+}
+
+async function refreshAll() {
+  await Promise.all([loadAgents(), refreshMetrics(), refreshFilters()]);
+}
+
+async function refreshFilters() {
+  try {
+    const [c, s] = await Promise.all([ api.get('/api/hc/campaigns'), api.get('/api/hc/supervisors') ]);
+    state.campaigns = c.campaigns || [];
+    state.supervisors = s.supervisors || [];
+    const agentRes = await api.get('/api/hc/agents');
+    state.coordinators = [...new Set(agentRes.agents.map(a => a.coordinator).filter(Boolean))].sort();
+
+    const setOptions = (id, items, defaultText) => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = `<option value="">${defaultText}</option>` + items.map(x => `<option>${escape(x)}</option>`).join('');
+        sel.value = items.includes(current) ? current : '';
+    };
+    setOptions('filterCampaign', state.campaigns, 'Todas las campañas');
+    setOptions('filterSupervisor', state.supervisors, 'Todos los supervisores');
+    setOptions('filterCoordinator', state.coordinators, 'Todos los coordinadores');
+    document.getElementById('campaignList').innerHTML = state.campaigns.map(x => `<option value="${escape(x)}"></option>`).join('');
+    document.getElementById('supervisorList').innerHTML = state.supervisors.map(x => `<option value="${escape(x)}"></option>`).join('');
+  } catch (e) { console.warn('refreshFilters:', e); }
+}
+
+async function refreshMetrics() {
+  const params = new URLSearchParams();
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+
+  try {
+    const m = await api.get('/api/hc/metrics?' + params.toString());
+    document.getElementById('kpiActive').textContent = m.active;
+    document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
+    document.getElementById('kpiSupervisors').textContent = state.supervisors.length;
+    document.getElementById('kpiCoordinators').textContent = state.coordinators.length;
+    document.getElementById('kpiTerminations').textContent = m.terminations;
+    document.getElementById('kpiNetChange').textContent = `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
+    const rotation = Number(m.attritionPercent ?? m.attrition ?? 0);
+    document.getElementById('kpiAttrition').textContent = `${rotation.toFixed(2)}%`;
+    const hcStart = Number(m.activeAtStart ?? 0);
+    const bajas = Number(m.terminations ?? 0);
+    document.getElementById('kpiAttritionDetail').textContent = `${bajas} bajas ÷ ${hcStart} HC inicial × 100`;
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadAgents() {
+  const params = new URLSearchParams();
+  const map = { campaign: 'filterCampaign', channel: 'filterChannel', supervisor: 'filterSupervisor', coordinator: 'filterCoordinator', status: 'filterStatus', search: 'filterSearch' };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value.trim();
+    if (v) params.set(k, v);
+  });
+  
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  if (start) params.set('startDate', start);
+  if (end) params.set('endDate', end);
+
+  try {
+    const data = await api.get('/api/hc/agents?' + params.toString());
+    state.agents = data.agents || [];
+    renderAgents();
+    renderTimelineChart();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderAgents() {
+  const body = document.getElementById('agentsBody');
+  if (!state.agents.length) {
+    body.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Sin colaboradores registrados para estos filtros.</td></tr>';
+    return;
+  }
+  
+  body.innerHTML = state.agents.map(a => {
+    const isBaja = a.status === 'Baja' || a.displayStatus === 'Baja';
+    let statusBadge = isBaja ? '<span class="roster-status inactive">Baja</span>' : '<span class="roster-status active">Activo</span>';
+
+    const selectedStatus = document.getElementById('filterStatus').value;
+    if (selectedStatus === 'Vacación') statusBadge = '<span class="roster-status vacation">Vacación</span>';
+    if (selectedStatus === 'Incapacidad') statusBadge = '<span class="roster-status incapacity">Incapacidad</span>';
+
+    const sched = a.schedules || {};
+    const dayChip = k => {
+      const v = sched[k] || 'DD-DD';
+      const off = v === 'DD-DD' ? 'off' : '';
+      return `<td><span class="roster-schedule ${off}">${escape(v)}</span></td>`;
+    };
+
+    return `
+      <tr>
+        <td><input type="checkbox"></td>
+        <td><span class="roster-agent-id">${escape(a.agentId)}</span></td>
+        <td><div class="roster-agent-name" title="${escape(a.fullName)}">${escape(a.fullName || '—')}</div></td>
+        <td>${escape(a.supervisor || '—')}</td>
+        <td>${escape(a.coordinator || '—')}</td>
+        <td>${escape(a.campaign)}</td>
+        <td>${escape(a.channel)}</td>
+        ${dayChip('Lunes')}${dayChip('Martes')}${dayChip('Miércoles')}${dayChip('Jueves')}
+        ${dayChip('Viernes')}${dayChip('Sábado')}${dayChip('Domingo')}
+        <td>${statusBadge}</td>
+        <td>
+          <button class="roster-edit-btn" onclick="openAgentModal('${escapeAttr(a.agentId)}')">Editar</button>
+          ${a.terminationDate || a.status === 'Baja'
+              ? `<button class="roster-edit-btn" style="color:#166534" onclick="reactivateAgent('${escapeAttr(a.agentId)}')">Reactivar</button>`
+              : `<button class="roster-edit-btn" onclick="openTransferModal('${escapeAttr(a.agentId)}')">Transferir</button>
+                 <button class="roster-edit-btn" style="color:#991B1B" onclick="openTerminateModal('${escapeAttr(a.agentId)}')">Baja</button>`}
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+/* =======================================================
+   LÓGICA DEL CRONOGRAMA (GRÁFICA DE BARRAS)
+   ======================================================= */
+function parseTime(t) {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
+function getScheduleCoverage(agent, dayIndex) {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const prevDayIndex = (dayIndex + 6) % 7;
+    
+    let coverage = new Array(48).fill(0);
+    
+    const applyShift = (start, end) => {
+        for (let i = 0; i < 48; i++) {
+            let slotStart = i * 30;
+            let slotEnd = slotStart + 30;
+            if (Math.max(slotStart, start) < Math.min(slotEnd, end)) {
+                coverage[i] = 1;
+            }
+        }
+    };
+
+    // Turno de hoy
+    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
+    if (currentStr !== 'DD-DD') {
+        const [s, e] = currentStr.split('-');
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
+        
+        let sClamped = Math.max(0, start);
+        let eClamped = Math.min(1440, end);
+        if (sClamped < eClamped) applyShift(sClamped, eClamped);
+    }
+    
+    // Turno del día anterior (que puede arrastrar horas hacia hoy)
+    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
+    if (prevStr !== 'DD-DD') {
+        const [s, e] = prevStr.split('-');
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
+        
+        // Si el turno del día anterior terminó después de las 24:00, arrastra a hoy
+        if (end > 1440) {
+            let sCarry = 0;
+            let eCarry = end - 1440;
+            applyShift(sCarry, eCarry);
+        }
+    }
+    
+    return coverage;
+}
+
+function renderTimelineChart() {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const tabsContainer = document.getElementById('scheduleTabs');
+    const chartContainer = document.getElementById('scheduleChart');
+    
+    tabsContainer.innerHTML = days.map(d => `
+        <button class="schedule-tab ${state.chartDay === d ? 'active' : ''}" onclick="changeChartDay('${d}')">${d.slice(0,3)}</button>
+    `).join('');
+
+    const dayIndex = days.indexOf(state.chartDay);
+    const activeAgents = state.agents.filter(a => a.status === 'Activo');
+
+    let totalCoverage = new Array(48).fill(0);
+    let agentsCovering = 0;
+
+    activeAgents.forEach(agent => {
+        const cov = getScheduleCoverage(agent, dayIndex);
+        let hasShift = false;
+        cov.forEach((val, i) => {
+            if (val) { totalCoverage[i]++; hasShift = true; }
+        });
+        if (hasShift) agentsCovering++;
+    });
+
+    const peak = Math.max(...totalCoverage);
+    let firstShift = totalCoverage.findIndex(v => v > 0);
+    let lastShift = -1;
+    for (let i = 47; i >= 0; i--) { if (totalCoverage[i] > 0) { lastShift = i; break; } }
+    
+    const formatTime = (slotIdx) => {
+        const h = Math.floor((slotIdx * 30) / 60);
+        const m = (slotIdx * 30) % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    };
+
+    document.getElementById('chartKpiAgents').textContent = agentsCovering;
+    document.getElementById('chartKpiPeak').textContent = `${peak} HC`;
+    document.getElementById('chartKpiStart').textContent = firstShift >= 0 ? formatTime(firstShift) : '—';
+    document.getElementById('chartKpiEnd').textContent = lastShift >= 0 ? formatTime(lastShift + 1) : '—';
+
+    chartContainer.innerHTML = totalCoverage.map((count, i) => {
+        const heightPercent = peak > 0 ? (count / peak) * 100 : 0;
+        const showLabel = i % 4 === 0;
+        return `
+            <div class="chart-bar-wrap" title="${formatTime(i)} - ${formatTime(i+1)}: ${count} agentes">
+                ${count > 0 ? `<span class="chart-bar-value">${count}</span>` : ''}
+                <div class="chart-bar" style="height: ${Math.max(2, heightPercent)}%; opacity: ${count === 0 ? '0.1' : '1'}"></div>
+                ${showLabel ? `<span class="chart-bar-label">${formatTime(i)}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function changeChartDay(day) {
+    state.chartDay = day;
+    renderTimelineChart();
+}
+
+/* ======================================================= */
+
+function escape(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+function escapeAttr(s) { return escape(s).replace(/"/g, '&quot;'); }
+
+function openAgentModal(agentId = null) {
+  state.editingAgent = agentId;
+  document.getElementById('agentEditId').value = agentId || '';
+  document.getElementById('agentModalTitle').textContent = agentId ? `Editar · ${agentId}` : 'Nuevo agente';
+  const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
+  const fld = id => document.getElementById(id);
+
+  fld('fldAgentId').value = a?.agentId || ''; fld('fldAgentId').disabled = !!a;
+  fld('fldFullName').value = a?.fullName || ''; fld('fldSupervisor').value = a?.supervisor || '';
+  fld('fldCoordinator').value = a?.coordinator || ''; fld('fldCampaign').value = a?.campaign || '';
+  fld('fldChannel').value = a?.channel || 'Llamadas'; fld('fldEmail').value = a?.email || '';
+  fld('fldEmployeeNumber').value = a?.employeeNumber || ''; fld('fldHireDate').value = (a?.hireDate || '').slice(0, 10);
+  fld('fldNotes').value = a?.notes || ''; fld('fldReason').value = '';
+  const sched = a?.schedules || {};
+  fld('fldLun').value = sched.Lunes || 'DD-DD'; fld('fldMar').value = sched.Martes || 'DD-DD';
+  fld('fldMie').value = sched['Miércoles'] || 'DD-DD'; fld('fldJue').value = sched.Jueves || 'DD-DD';
+  fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
+  fld('fldDom').value = sched.Domingo || 'DD-DD';
+  document.getElementById('agentModal').classList.remove('hidden');
+}
+function closeAgentModal() { document.getElementById('agentModal').classList.add('hidden'); state.editingAgent = null; }
+
+async function saveAgent(event) {
+  event.preventDefault();
+  const btn = document.getElementById('agentSaveBtn'); btn.disabled = true;
+  try {
+    const payload = {
+      agentId: document.getElementById('fldAgentId').value.trim(),
+      fullName: document.getElementById('fldFullName').value.trim(),
+      supervisor: document.getElementById('fldSupervisor').value.trim(),
+      coordinator: document.getElementById('fldCoordinator').value.trim(),
+      campaign: document.getElementById('fldCampaign').value.trim(),
+      channel: document.getElementById('fldChannel').value,
+      email: document.getElementById('fldEmail').value.trim(),
+      employeeNumber: document.getElementById('fldEmployeeNumber').value.trim(),
+      hireDate: document.getElementById('fldHireDate').value || null,
+      notes: document.getElementById('fldNotes').value.trim(),
+      reason: document.getElementById('fldReason').value.trim(),
+      actorMode: 'operaciones',
+      schedules: {
+        'Lunes': document.getElementById('fldLun').value, 'Martes': document.getElementById('fldMar').value,
+        'Miércoles': document.getElementById('fldMie').value, 'Jueves': document.getElementById('fldJue').value,
+        'Viernes': document.getElementById('fldVie').value, 'Sábado': document.getElementById('fldSab').value,
+        'Domingo': document.getElementById('fldDom').value
+      }
+    };
+    if (!payload.agentId) throw new Error('El ID del agente es obligatorio.');
+    if (!payload.campaign) throw new Error('La campaña es obligatoria.');
+
+    if (state.editingAgent) { await api.send('PUT', `/api/hc/agents/${encodeURIComponent(state.editingAgent)}`, payload); toast(`Agente actualizado.`); }
+    else { await api.send('POST', '/api/hc/agents', payload); toast(`Agente creado.`); }
+    closeAgentModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openTerminateModal(agentId) {
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('terminateSub').textContent = `${a.agentId} · ${a.fullName || ''} · ${a.campaign || ''}`;
+  document.getElementById('terminateAgentId').value = agentId;
+  document.getElementById('terminateDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('terminateReason').value = '';
+  document.getElementById('terminateModal').classList.remove('hidden');
+}
+function closeTerminateModal() { document.getElementById('terminateModal').classList.add('hidden'); }
+
+async function submitTermination() {
+  const btn = document.getElementById('terminateBtn'); btn.disabled = true;
+  try {
+    const date = document.getElementById('terminateDate').value;
+    const reason = document.getElementById('terminateReason').value.trim();
+    const rehireable = document.getElementById('terminateRehireable').checked;
+    const id = document.getElementById('terminateAgentId').value;
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable, actorMode: 'operaciones' });
+    toast(`Baja registrada.`); closeTerminateModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+function openTransferModal(agentId) {
+  const a = state.agents.find(x => x.agentId === agentId);
+  document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''} · actualmente ${a.campaign} (${a.channel})`;
+  document.getElementById('transferAgentId').value = agentId;
+  document.getElementById('transferCampaign').value = '';
+  document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
+  document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('transferReason').value = '';
+  document.getElementById('transferModal').classList.remove('hidden');
+}
+function closeTransferModal() { document.getElementById('transferModal').classList.add('hidden'); }
+
+async function submitTransfer() {
+  const btn = document.getElementById('transferBtn'); btn.disabled = true;
+  try {
+    const id = document.getElementById('transferAgentId').value;
+    const toCampaign = document.getElementById('transferCampaign').value.trim();
+    const toChannel = document.getElementById('transferChannel').value;
+    const effectiveDate = document.getElementById('transferDate').value;
+    const reason = document.getElementById('transferReason').value.trim();
+    if (!toCampaign) throw new Error('Indica la campaña destino.');
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { toCampaign, toChannel, effectiveDate, reason: reason || 'Transferencia de campaña', actorMode: 'operaciones' });
+    toast(`Transferencia registrada.`); closeTransferModal(); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
+}
+
+async function reactivateAgent(agentId) {
+  if (!confirm(`¿Reactivar a ${agentId}?`)) return;
+  try {
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { reason: 'Reactivación desde tablero de Operaciones', actorMode: 'operaciones' });
+    toast(`Agente reactivado.`); await refreshAll();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function downloadTemplate() { window.location.href = '/api/hc/template'; }
+function exportCsv() {
+  const start = document.getElementById('rosterEffectiveStart').value;
+  const end = document.getElementById('rosterEffectiveEnd').value;
+  let url = '/api/hc/export';
+  if (start && end) url += `?startDate=${start}&endDate=${end}`;
+  window.location.href = url;
+}
+
+async function importFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!confirm(`Importar "${file.name}"?\n\nLos agentes con el mismo ID serán actualizados.`)) { event.target.value = ''; return; }
+  
+  const btnSpan = document.querySelector('.roster-head-btn.gold span');
+  const originalText = btnSpan.innerText;
+  btnSpan.innerText = 'Cargando...';
+
+  try {
+    const fd = new FormData(); 
+    fd.append('file', file); 
+    fd.append('actorMode', 'operaciones');
+    const r = await fetch('/api/hc/import', {method: 'POST', body: fd});
+    
+    let data;
+    try {
+        data = await r.json();
+    } catch (err) {
+        throw new Error('El servidor tardó demasiado en responder. Intenta con un archivo más pequeño.');
+    }
+    
+    if (!r.ok) throw new Error(data.error || 'Error al importar.');
+    
+    if (data.imported === 0) {
+        if (data.errors && data.errors.length > 0) {
+            const sample = data.errors.slice(0, 3).map(e => `Fila ${e.row}: ${e.error}`).join('\n');
+            alert(`No se pudo importar ningún agente.\n\nPrimeros errores encontrados:\n${sample}\n\nRevisa que las columnas coincidan con la plantilla.`);
+        } else {
+            alert('El archivo se leyó pero no contenía filas válidas o las columnas no coinciden con la plantilla.');
+        }
+    } else {
+        toast(`Importación exitosa: ${data.imported} agente(s) guardados.`);
+        if (data.errors && data.errors.length > 0) {
+            console.warn("Filas con observaciones:", data.errors);
+        }
+    }
+    
+    await refreshAll();
+  } catch (e) { 
+    toast(e.message, 'error'); 
+  } finally { 
+    event.target.value = ''; 
+    btnSpan.innerText = originalText;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  document.getElementById('rosterEffectiveStart').value = firstDay.toISOString().slice(0, 10);
+  document.getElementById('rosterEffectiveEnd').value = today.toISOString().slice(0, 10);
+  
+  refreshAll();
+});
+</script>
+</body>
+</html>
