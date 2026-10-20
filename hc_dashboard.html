@@ -178,7 +178,7 @@
         <div class="roster-kpi"><div class="roster-kpi-label">Supervisores</div><div class="roster-kpi-value" id="kpiSupervisors">—</div><div class="roster-kpi-detail">Registrados</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Coordinadores</div><div class="roster-kpi-value" id="kpiCoordinators">—</div><div class="roster-kpi-detail">Registrados</div></div>
         <div class="roster-kpi"><div class="roster-kpi-label">Bajas del periodo</div><div class="roster-kpi-value" id="kpiTerminations">—</div><div class="roster-kpi-detail" id="kpiNetChange">—</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Attrition</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail">Bajas / HC inicial</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-label">Rotación del periodo</div><div class="roster-kpi-value" id="kpiAttrition">—</div><div class="roster-kpi-detail" id="kpiAttritionDetail">Bajas ÷ HC al inicio × 100</div></div>
     </div>
 
     <!-- FILTROS -->
@@ -431,7 +431,11 @@ async function refreshMetrics() {
     document.getElementById('kpiCoordinators').textContent = state.coordinators.length;
     document.getElementById('kpiTerminations').textContent = m.terminations;
     document.getElementById('kpiNetChange').textContent = `Cambio neto: ${m.netChange >= 0 ? '+' : ''}${m.netChange}`;
-    document.getElementById('kpiAttrition').textContent = m.attrition + '%';
+    const rotation = Number(m.attritionPercent ?? m.attrition ?? 0);
+    document.getElementById('kpiAttrition').textContent = `${rotation.toFixed(2)}%`;
+    const hcStart = Number(m.activeAtStart ?? 0);
+    const bajas = Number(m.terminations ?? 0);
+    document.getElementById('kpiAttritionDetail').textContent = `${bajas} bajas ÷ ${hcStart} HC inicial × 100`;
   } catch (e) { toast(e.message, 'error'); }
 }
 
