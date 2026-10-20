@@ -522,10 +522,8 @@ def hc_list_supervisors():
 def hc_download_template():
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    # Plantilla exacta solicitada
     writer.writerow(['ID Agente', 'Nombre Completo', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
     
-    # Fecha de hoy en formato DD/MM/YYYY
     hoy_ddmmyyyy = datetime.now().strftime('%d/%m/%Y')
     
     writer.writerow([
@@ -559,7 +557,12 @@ def hc_import():
     actor = str(request.form.get('actorMode', 'operaciones'))[:80]
     try:
         if name.endswith('.csv'):
-            raw = f.read().decode('utf-8-sig')
+            raw_bytes = f.read()
+            try:
+                raw = raw_bytes.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                raw = raw_bytes.decode('latin-1')
+            
             df = pd.read_csv(io.StringIO(raw)) if HAS_PANDAS else [dict(r) for r in csv.DictReader(io.StringIO(raw))]
         elif name.endswith('.xlsx'):
             if not HAS_PANDAS: return jsonify({'error': 'Instala pandas y openpyxl.'}), 400
