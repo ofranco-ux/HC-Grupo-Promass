@@ -782,7 +782,6 @@ def hc_metrics():
             [today] + args
         ).fetchone()[0]
 
-        # NUEVAS CONSULTAS PARA SUPERVISORES Y COORDINADORES
         unique_supervisors = conn.execute(
             "SELECT COUNT(DISTINCT a.supervisor) FROM hc_agents a WHERE a.status='Activo' AND a.supervisor <> '' "
             "AND (a.termination_date IS NULL OR a.termination_date > ?)" + agent_where,
@@ -929,114 +928,119 @@ def hc_download_template():
 
 @hc_bp.route('/api/hc/export', methods=['GET'])
 def hc_export_csv():
-    _init_db()
-    mode = request.args.get('mode', 'base')
-    start_date_str = request.args.get('startDate', '').strip()
-    end_date_str = request.args.get('endDate', '').strip()
-
-    conn = _conn()
     try:
-        agents = [_row_to_agent(r) for r in conn.execute("SELECT * FROM hc_agents ORDER BY agent_id").fetchall()]
-        transfers = [dict(r) for r in conn.execute("SELECT * FROM hc_transfers ORDER BY effective_date").fetchall()]
-        overrides = [dict(r) for r in conn.execute("SELECT * FROM hc_schedule_overrides ORDER BY start_date").fetchall()]
-        absences = [dict(r) for r in conn.execute("SELECT * FROM hc_absences ORDER BY start_date").fetchall()]
-    finally:
-        conn.close()
+        _init_db()
+        mode = request.args.get('mode', 'base')
+        start_date_str = request.args.get('startDate', '').strip()
+        end_date_str = request.args.get('endDate', '').strip()
 
-    transfers_by_agent = defaultdict(list)
-    for t in transfers: transfers_by_agent[t['agent_id']].append(t)
-    
-    overrides_by_agent = defaultdict(list)
-    for o in overrides: overrides_by_agent[o['agent_id']].append(o)
-    
-    absences_by_agent = defaultdict(list)
-    for a in absences: absences_by_agent[a['agent_id']].append(a)
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-
-    if mode == 'base':
-        writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
-        for r in agents:
-            s = r['schedules']
-            writer.writerow([
-                r['agentId'], r['fullName'], r['role'], r['supervisor'], r['coordinator'], 
-                r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', 
-                r['terminationDate'] or '', r['terminationReason'] or '', 
-                s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo']
-            ])
-    else:
-        if not start_date_str or not end_date_str:
-            return jsonify({'error': 'Faltan fechas para exportar el histórico.'}), 400
-
+        conn = _conn()
         try:
-            start_date = datetime.strptime(start_date_str[:10], '%Y-%m-%d').date()
-            end_date = datetime.strptime(end_date_str[:10], '%Y-%m-%d').date()
-        except ValueError:
-            return jsonify({'error': 'Formato de fecha inválido.'}), 400
+            agents = [_row_to_agent(r) for r in conn.execute("SELECT * FROM hc_agents ORDER BY agent_id").fetchall()]
+            transfers = [dict(r) for r in conn.execute("SELECT * FROM hc_transfers ORDER BY effective_date").fetchall()]
+            overrides = [dict(r) for r in conn.execute("SELECT * FROM hc_schedule_overrides ORDER BY start_date").fetchall()]
+            absences = [dict(r) for r in conn.execute("SELECT * FROM hc_absences ORDER BY start_date").fetchall()]
+        finally:
+            conn.close()
 
-        writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+        transfers_by_agent = defaultdict(list)
+        for t in transfers: transfers_by_agent[t['agent_id']].append(t)
         
-        current_date = start_date
-        while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
+        overrides_by_agent = defaultdict(list)
+        for o in overrides: overrides_by_agent[o['agent_id']].append(o)
+        
+        absences_by_agent = defaultdict(list)
+        for a in absences: absences_by_agent[a['agent_id']].append(a)
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+
+        if mode == 'base':
+            writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+            for r in agents:
+                s = r['schedules']
+                writer.writerow([
+                    r['agentId'], r['fullName'], r['role'], r['supervisor'], r['coordinator'], 
+                    r['campaign'], r['channel'], r['displayStatus'], r['hireDate'] or '', 
+                    r['terminationDate'] or '', r['terminationReason'] or '', 
+                    s['Lunes'], s['Martes'], s['Miércoles'], s['Jueves'], s['Viernes'], s['Sábado'], s['Domingo']
+                ])
+        else:
+            if not start_date_str or not end_date_str:
+                return jsonify({'error': 'Faltan fechas para exportar el histórico.'}), 400
+
+            try:
+                start_date = datetime.strptime(start_date_str[:10], '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str[:10], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Formato de fecha inválido.'}), 400
+
+            writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
             
-            for a in agents:
-                h_date = parse_db_date(a['hireDate'])
-                if h_date and h_date > current_date:
-                    continue
+            current_date = start_date
+            while current_date <= end_date:
+                date_str = current_date.strftime('%Y-%m-%d')
                 
-                t_date = parse_db_date(a['terminationDate'])
-                if t_date and t_date < current_date:
-                    continue
-                
-                hist_campaign = a['campaign']
-                hist_supervisor = a['supervisor']
-                hist_coordinator = a['coordinator']
-                hist_channel = a['channel']
-                hist_role = a['role']
-                
-                for t in transfers_by_agent[a['agentId']]:
-                    t_eff_date = parse_db_date(t['effective_date'])
-                    if t_eff_date and t_eff_date <= current_date:
-                        hist_campaign = t['to_campaign']
-                        hist_supervisor = t['to_supervisor']
-                        hist_coordinator = t['to_coordinator']
-                        hist_channel = t['to_channel']
-                        hist_role = t['to_role']
+                for a in agents:
+                    h_date = parse_db_date(a['hireDate'])
+                    if h_date and h_date > current_date:
+                        continue
+                    
+                    t_date = parse_db_date(a['terminationDate'])
+                    if t_date and t_date < current_date:
+                        continue
+                    
+                    hist_campaign = a['campaign']
+                    hist_supervisor = a['supervisor']
+                    hist_coordinator = a['coordinator']
+                    hist_channel = a['channel']
+                    hist_role = a['role']
+                    
+                    for t in transfers_by_agent[a['agentId']]:
+                        t_eff_date = parse_db_date(t['effective_date'])
+                        if t_eff_date and t_eff_date <= current_date:
+                            hist_campaign = t['to_campaign']
+                            hist_supervisor = t['to_supervisor']
+                            hist_coordinator = t['to_coordinator']
+                            hist_channel = t['to_channel']
+                            hist_role = t['to_role']
 
-                hist_schedules = dict(a['schedules'])
-                for o in overrides_by_agent[a['agentId']]:
-                    o_start = parse_db_date(o['start_date'])
-                    o_end = parse_db_date(o['end_date'])
-                    if o_start and o_end and o_start <= current_date <= o_end:
-                        hist_schedules = json.loads(o['schedules_json'])
-                        break
-
-                hist_status = 'Activo'
-                term_reason = ''
-
-                if t_date and t_date == current_date:
-                    hist_status = 'Baja'
-                    term_reason = a['terminationReason']
-                else:
-                    for abs in absences_by_agent[a['agentId']]:
-                        abs_start = parse_db_date(abs['start_date'])
-                        abs_end = parse_db_date(abs['end_date'])
-                        if abs_start and abs_end and abs_start <= current_date <= abs_end and abs['status'] == 'approved':
-                            hist_status = 'Vacación' if abs['absence_type'] == 'vacation' else 'Incapacidad'
+                    hist_schedules = dict(a['schedules'])
+                    for o in overrides_by_agent[a['agentId']]:
+                        o_start = parse_db_date(o['start_date'])
+                        o_end = parse_db_date(o['end_date'])
+                        if o_start and o_end and o_start <= current_date <= o_end:
+                            hist_schedules = json.loads(o['schedules_json'])
                             break
 
-                writer.writerow([
-                    date_str, a['agentId'], a['fullName'], hist_role, hist_supervisor, hist_coordinator,
-                    hist_campaign, hist_channel, hist_status, term_reason,
-                    hist_schedules.get('Lunes', ''), hist_schedules.get('Martes', ''), hist_schedules.get('Miércoles', ''),
-                    hist_schedules.get('Jueves', ''), hist_schedules.get('Viernes', ''), hist_schedules.get('Sábado', ''),
-                    hist_schedules.get('Domingo', '')
-                ])
-            current_date += timedelta(days=1)
+                    hist_status = 'Activo'
+                    term_reason = ''
 
-    return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_{mode}_{_today()}.csv')
+                    if t_date and t_date == current_date:
+                        hist_status = 'Baja'
+                        term_reason = a['terminationReason']
+                    else:
+                        for abs in absences_by_agent[a['agentId']]:
+                            abs_start = parse_db_date(abs['start_date'])
+                            abs_end = parse_db_date(abs['end_date'])
+                            if abs_start and abs_end and abs_start <= current_date <= abs_end and abs['status'] == 'approved':
+                                hist_status = 'Vacación' if abs['absence_type'] == 'vacation' else 'Incapacidad'
+                                break
+
+                    writer.writerow([
+                        date_str, a['agentId'], a['fullName'], hist_role, hist_supervisor, hist_coordinator,
+                        hist_campaign, hist_channel, hist_status, term_reason,
+                        hist_schedules.get('Lunes', ''), hist_schedules.get('Martes', ''), hist_schedules.get('Miércoles', ''),
+                        hist_schedules.get('Jueves', ''), hist_schedules.get('Viernes', ''), hist_schedules.get('Sábado', ''),
+                        hist_schedules.get('Domingo', '')
+                    ])
+                current_date += timedelta(days=1)
+
+        return send_file(io.BytesIO(buffer.getvalue().encode('utf-8-sig')), mimetype='text/csv; charset=utf-8', as_attachment=True, download_name=f'HC_{mode}_{_today()}.csv')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error interno al generar el CSV: {str(e)}'}), 500
 
 @hc_bp.route('/api/hc/import', methods=['POST'])
 def hc_import():
