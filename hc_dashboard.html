@@ -497,40 +497,44 @@ function getScheduleCoverage(agent, dayIndex) {
     const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const prevDayIndex = (dayIndex + 6) % 7;
     
-    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
-    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
-    
     let coverage = new Array(48).fill(0);
     
-    const mark = (start, end, isPrevDay) => {
-        let offset = isPrevDay ? 1440 : 0;
+    const applyShift = (start, end) => {
         for (let i = 0; i < 48; i++) {
             let slotStart = i * 30;
             let slotEnd = slotStart + 30;
-            
-            let shiftStart = start + offset;
-            let shiftEnd = end + offset;
-            if (shiftEnd <= shiftStart) shiftEnd += 1440;
-            
-            if (Math.max(slotStart, shiftStart) < Math.min(slotEnd, shiftEnd)) {
+            if (Math.max(slotStart, start) < Math.min(slotEnd, end)) {
                 coverage[i] = 1;
             }
         }
     };
 
+    // Turno de hoy
+    let currentStr = agent.schedules[days[dayIndex]] || 'DD-DD';
     if (currentStr !== 'DD-DD') {
         const [s, e] = currentStr.split('-');
-        mark(parseTime(s), parseTime(e), false);
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
+        
+        let sClamped = Math.max(0, start);
+        let eClamped = Math.min(1440, end);
+        if (sClamped < eClamped) applyShift(sClamped, eClamped);
     }
     
+    // Turno del día anterior (que puede arrastrar horas hacia hoy)
+    let prevStr = agent.schedules[days[prevDayIndex]] || 'DD-DD';
     if (prevStr !== 'DD-DD') {
         const [s, e] = prevStr.split('-');
-        let sMin = parseTime(s);
-        let eMin = parseTime(e);
-        if (eMin <= sMin) eMin += 1440;
+        let start = parseTime(s);
+        let end = parseTime(e);
+        if (end <= start) end += 1440; // Cruza medianoche
         
-        if (eMin > 1440) {
-            mark(sMin, eMin, true);
+        // Si el turno del día anterior terminó después de las 24:00, arrastra a hoy
+        if (end > 1440) {
+            let sCarry = 0;
+            let eCarry = end - 1440;
+            applyShift(sCarry, eCarry);
         }
     }
     
