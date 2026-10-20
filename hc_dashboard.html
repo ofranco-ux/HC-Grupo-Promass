@@ -238,13 +238,13 @@
                 <thead>
                     <tr>
                         <th style="width: 40px;"><input type="checkbox"></th>
-                        <th>ID Agente</th><th>Nombre Completo</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
+                        <th>ID Agente</th><th>Nombre Completo</th><th>Puesto</th><th>Supervisor</th><th>Coordinador</th><th>Campaña</th><th>Canal</th>
                         <th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th><th>Sábado</th><th>Domingo</th>
                         <th>Estado</th><th>Acciones</th>
                     </tr>
                 </thead>
                 <tbody id="agentsBody">
-                    <tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Cargando roster operativo…</td></tr>
+                    <tr><td colspan="17" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Cargando roster operativo…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -287,6 +287,19 @@
           <div class="field"><label>Nombre Completo</label><input id="fldFullName" maxlength="120" placeholder="Nombre Apellido"></div>
           
           <div class="field">
+            <label>Puesto / Rol</label>
+            <input id="fldRole" list="rolesList" maxlength="120" placeholder="Agente">
+            <datalist id="rolesList">
+                <option value="Agente">
+                <option value="Supervisor">
+                <option value="Coordinador">
+                <option value="Staff QA">
+                <option value="Formador">
+            </datalist>
+          </div>
+          <div class="field"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
+          
+          <div class="field">
             <label>Supervisor</label>
             <select id="fldSupervisor" class="roster-select"><option value="">Selecciona un supervisor</option></select>
           </div>
@@ -307,7 +320,6 @@
           </div>
 
           <div class="field hidden" id="wrapFldStatus"><label>Estado</label><select id="fldStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
-          <div class="field" id="wrapFldHireDate"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
         </div>
 
         <div class="form-grid" style="margin-top:16px;">
@@ -374,7 +386,7 @@
   </div>
 </div>
 
-<!-- Modal: Transferencia -->
+<!-- Modal: Transferencia / Cambio Interno -->
 <div id="transferModal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:500px;">
     <div class="modal-header">
@@ -385,6 +397,10 @@
       <input type="hidden" id="transferAgentId">
       <div class="form-grid">
         <div class="field field-full">
+          <label>Puesto / Rol Destino *</label>
+          <input id="transferRole" list="rolesList" required>
+        </div>
+        <div class="field field-full">
           <label>Campaña destino *</label>
           <select id="transferCampaign" class="roster-select" required>
             <option value="">Selecciona una campaña</option>
@@ -394,7 +410,7 @@
         <div class="field"><label>Supervisor destino</label><select id="transferSupervisor" class="roster-select"></select></div>
         <div class="field"><label>Coordinador destino</label><select id="transferCoordinator" class="roster-select"></select></div>
         <div class="field field-full"><label>Fecha efectiva *</label><input id="transferDate" type="date" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="transferReason" maxlength="500" placeholder="Ej. Cierre de campaña, reorganización..."></div>
+        <div class="field field-full"><label>Motivo</label><input id="transferReason" maxlength="500" placeholder="Ej. Cierre de campaña, cambio a QA..."></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -602,7 +618,7 @@ async function loadAgents() {
 function renderAgents() {
   const body = document.getElementById('agentsBody');
   if (!state.agents.length) {
-    body.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Sin colaboradores registrados para estos filtros.</td></tr>';
+    body.innerHTML = '<tr><td colspan="17" style="text-align:center;padding:40px;color:#64748B;font-weight:600;">Sin colaboradores registrados para estos filtros.</td></tr>';
     return;
   }
   
@@ -626,6 +642,7 @@ function renderAgents() {
         <td><input type="checkbox"></td>
         <td><span class="roster-agent-id">${escape(a.agentId)}</span></td>
         <td><div class="roster-agent-name" title="${escape(a.fullName)}">${escape(a.fullName || '—')}</div></td>
+        <td>${escape(a.role || 'Agente')}</td>
         <td>${escape(a.supervisor || '—')}</td>
         <td>${escape(a.coordinator || '—')}</td>
         <td>${escape(a.campaign)}</td>
@@ -787,6 +804,7 @@ function openAgentModal(agentId = null) {
   fld('fldAgentId').disabled = false; 
   
   fld('fldFullName').value = a?.fullName || ''; 
+  fld('fldRole').value = a?.role || 'Agente';
   fld('fldSupervisor').value = a?.supervisor || '';
   fld('fldCoordinator').value = a?.coordinator || ''; 
   fld('fldCampaign').value = a?.campaign || '';
@@ -807,6 +825,7 @@ function openAgentModal(agentId = null) {
   fld('fldHireDate').disabled = isEdit;
   fld('fldSupervisor').disabled = isEdit;
   fld('fldCoordinator').disabled = isEdit;
+  fld('fldRole').disabled = isEdit;
 
   document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
 
@@ -834,6 +853,7 @@ async function saveAgent(event) {
     const payload = {
       agentId: document.getElementById('fldAgentId').value.trim(),
       fullName: document.getElementById('fldFullName').value.trim(),
+      role: document.getElementById('fldRole').value.trim() || 'Agente',
       supervisor: document.getElementById('fldSupervisor').value.trim(),
       coordinator: document.getElementById('fldCoordinator').value.trim(),
       campaign: document.getElementById('fldCampaign').value.trim(),
@@ -905,6 +925,7 @@ function openTransferModal(agentId) {
   document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
   document.getElementById('transferAgentId').value = agentId;
   
+  document.getElementById('transferRole').value = a?.role || 'Agente';
   document.getElementById('transferCampaign').value = a?.campaign || '';
   document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
   document.getElementById('transferSupervisor').value = a?.supervisor || '';
@@ -920,6 +941,7 @@ async function submitTransfer() {
   const btn = document.getElementById('transferBtn'); btn.disabled = true;
   try {
     const id = document.getElementById('transferAgentId').value;
+    const toRole = document.getElementById('transferRole').value.trim() || 'Agente';
     const toCampaign = document.getElementById('transferCampaign').value.trim();
     const toChannel = document.getElementById('transferChannel').value;
     const toSupervisor = document.getElementById('transferSupervisor').value.trim();
@@ -929,7 +951,7 @@ async function submitTransfer() {
     
     if (!toCampaign) throw new Error('Indica la campaña destino.');
     await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { 
-        toCampaign, toChannel, toSupervisor, toCoordinator, effectiveDate, 
+        toRole, toCampaign, toChannel, toSupervisor, toCoordinator, effectiveDate, 
         reason: reason || 'Transferencia registrada', actorMode: 'operaciones' 
     });
     
