@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS hc_transfers (
     to_campaign TEXT NOT NULL,
     from_channel TEXT NOT NULL DEFAULT '',
     to_channel TEXT NOT NULL DEFAULT '',
+    from_supervisor TEXT NOT NULL DEFAULT '',
+    to_supervisor TEXT NOT NULL DEFAULT '',
+    from_coordinator TEXT NOT NULL DEFAULT '',
+    to_coordinator TEXT NOT NULL DEFAULT '',
     effective_date TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
@@ -138,6 +142,15 @@ def _init_db():
             conn.execute('PRAGMA journal_mode=WAL')
             conn.execute('PRAGMA synchronous=NORMAL')
             conn.executescript(SCHEMA)
+            
+            # Migraciones
+            columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_transfers)").fetchall()]
+            if 'from_supervisor' not in columns:
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_supervisor TEXT NOT NULL DEFAULT ''")
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_supervisor TEXT NOT NULL DEFAULT ''")
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN from_coordinator TEXT NOT NULL DEFAULT ''")
+                conn.execute("ALTER TABLE hc_transfers ADD COLUMN to_coordinator TEXT NOT NULL DEFAULT ''")
+            
             conn.commit()
             HC_DB_READY = True
         finally:
@@ -218,14 +231,24 @@ def _diff_agents(before, after):
     if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
     return out
 
-def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
-    agent_id = str((payload or {}).get('agentId') or '').strip()
-    if not agent_id: raise ValueError('El ID del agente es obligatorio.')
+def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
+    new_id = str((payload or {}).get('agentId') or '').strip()
+    if not new_id: raise ValueError('El ID del agente es obligatorio.')
     campaign = str((payload or {}).get('campaign') or '').strip()
     if not campaign: raise ValueError('La campaña es obligatoria.')
 
-    before = _fetch_agent(conn, agent_id)
+    before = _fetch_agent(conn, old_id)
     if before is None and not allow_create: raise ValueError('No se encontró el agente.')
+
+    # Si el ID cambió, actualizamos las tablas relacionadas
+    if before and old_id != new_id:
+        if conn.execute("SELECT 1 FROM hc_agents WHERE agent_id=?", (new_id,)).fetchone():
+            raise ValueError('El nuevo ID de agente ya existe.')
+        conn.execute("UPDATE hc_terminations SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_transfers SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_absences SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_schedule_overrides SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_history SET agent_id=? WHERE agent_id=?", (new_id, old_id))
 
     schedules = payload.get('schedules') or {}
     days = {d: _validate_schedule(schedules.get(d, (before or {}).get('schedules', {}).get(d, 'DD-DD'))) for d in ROSTER_DAYS}
@@ -238,7 +261,6 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
 
     now = _now()
     
-    # Si se envía validez temporal, solo actualizamos los datos fijos y guardamos el horario en la tabla temporal
     validity = payload.get('validity') or {}
     is_temp = validity.get('type') == 'temporary'
     
@@ -252,10 +274,9 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
     )
 
     if before is None:
-        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (agent_id,) + values)
-        _log_history(conn, agent_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[3], 'channel': values[4], 'supervisor': values[1], 'coordinator': values[2], 'hireDate': hire_date}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
+        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values)
+        _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[3], 'channel': values[4], 'supervisor': values[1], 'coordinator': values[2], 'hireDate': hire_date}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
     else:
-        # Si es temporal, mantenemos los horarios base anteriores en hc_agents
         if is_temp:
             update_values = values[:9] + (
                 before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
@@ -264,7 +285,7 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
         else:
             update_values = values
             
-        conn.execute("""UPDATE hc_agents SET full_name=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", update_values + (agent_id,))
+        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (old_id,))
         
         if is_temp:
             start = _validate_date(validity.get('startDate'), 'fecha inicio')
@@ -275,15 +296,15 @@ def _save_agent_tx(conn, payload, actor='operaciones', allow_create=True):
             conn.execute("""
                 INSERT INTO hc_schedule_overrides (agent_id, start_date, end_date, schedules_json, reason, created_at, created_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (agent_id, start, end, json.dumps(days), reason, now, actor))
+            """, (new_id, start, end, json.dumps(days), reason, now, actor))
             
-            _log_history(conn, agent_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
+            _log_history(conn, new_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
 
-        after = _fetch_agent(conn, agent_id)
+        after = _fetch_agent(conn, new_id)
         if not is_temp and _diff_agents(before, after): 
-            _log_history(conn, agent_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
+            _log_history(conn, new_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
             
-    return _fetch_agent(conn, agent_id)
+    return _fetch_agent(conn, new_id)
 
 hc_bp = Blueprint('hc_manager', __name__)
 
@@ -376,10 +397,11 @@ def hc_create_agent():
     try:
         payload = request.get_json(force=True, silent=False) or {}
         actor = str(payload.pop('actorMode', 'operaciones'))[:80]
+        agent_id = str(payload.get('agentId') or '').strip()
         with HC_LOCK:
             conn = _conn()
             try:
-                agent = _save_agent_tx(conn, payload, actor, allow_create=True)
+                agent = _save_agent_tx(conn, agent_id, payload, actor, allow_create=True)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -395,12 +417,11 @@ def hc_update_agent(agent_id):
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        payload['agentId'] = agent_id
         actor = str(payload.pop('actorMode', 'operaciones'))[:80]
         with HC_LOCK:
             conn = _conn()
             try:
-                agent = _save_agent_tx(conn, payload, actor, allow_create=False)
+                agent = _save_agent_tx(conn, agent_id, payload, actor, allow_create=False)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -477,20 +498,38 @@ def hc_transfer_agent(agent_id):
         payload = request.get_json(force=True, silent=False) or {}
         actor = str(payload.get('actorMode', 'operaciones'))[:80]
         to_campaign = str(payload.get('toCampaign') or '').strip()
-        if not to_campaign: raise ValueError('La campaña destino es obligatoria.')
+        to_channel = _normalize_channel(payload.get('toChannel') or '')
+        to_supervisor = str(payload.get('toSupervisor') or '').strip()
+        to_coordinator = str(payload.get('toCoordinator') or '').strip()
         effective = _validate_date(payload.get('effectiveDate'), 'fecha efectiva')
         reason = str(payload.get('reason') or '')[:500]
-        to_channel = _normalize_channel(payload.get('toChannel') or '')
+
+        if not to_campaign: raise ValueError('La campaña destino es obligatoria.')
 
         with HC_LOCK:
             conn = _conn()
             try:
                 before = _fetch_agent(conn, agent_id)
                 if not before: raise ValueError('Agente no encontrado.')
-                if before['campaign'] == to_campaign and before['channel'] == to_channel: raise ValueError('El agente ya está en esa campaña y canal.')
-                conn.execute("UPDATE hc_agents SET campaign=?, channel=?, updated_at=?, updated_by=? WHERE agent_id=?", (to_campaign, to_channel, _now(), actor, agent_id))
-                conn.execute("INSERT INTO hc_transfers (agent_id, from_campaign, to_campaign, from_channel, to_channel, effective_date, reason, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (agent_id, before['campaign'], to_campaign, before['channel'], to_channel, effective, reason, _now(), actor))
-                _log_history(conn, agent_id, 'campaign_transferred', before, {'fromCampaign': before['campaign'], 'toCampaign': to_campaign, 'fromChannel': before['channel'], 'toChannel': to_channel, 'effectiveDate': effective}, reason, effective, actor)
+                if (before['campaign'] == to_campaign and before['channel'] == to_channel and 
+                    before['supervisor'] == to_supervisor and before['coordinator'] == to_coordinator):
+                    raise ValueError('No hay cambios en la asignación actual.')
+
+                conn.execute("UPDATE hc_agents SET campaign=?, channel=?, supervisor=?, coordinator=?, updated_at=?, updated_by=? WHERE agent_id=?", 
+                             (to_campaign, to_channel, to_supervisor, to_coordinator, _now(), actor, agent_id))
+                
+                conn.execute("""
+                    INSERT INTO hc_transfers (agent_id, from_campaign, to_campaign, from_channel, to_channel, from_supervisor, to_supervisor, from_coordinator, to_coordinator, effective_date, reason, created_at, created_by) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (agent_id, before['campaign'], to_campaign, before['channel'], to_channel, before['supervisor'], to_supervisor, before['coordinator'], to_coordinator, effective, reason, _now(), actor))
+                
+                _log_history(conn, agent_id, 'agent_transferred', before, {
+                    'fromCampaign': before['campaign'], 'toCampaign': to_campaign, 
+                    'fromChannel': before['channel'], 'toChannel': to_channel,
+                    'fromSupervisor': before['supervisor'], 'toSupervisor': to_supervisor,
+                    'fromCoordinator': before['coordinator'], 'toCoordinator': to_coordinator,
+                    'effectiveDate': effective
+                }, reason, effective, actor)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -532,7 +571,7 @@ def hc_list_terminations():
 def hc_list_transfers():
     _init_db()
     conn = _conn()
-    try: rows = [dict(r) for r in conn.execute("SELECT t.*, a.full_name, a.supervisor FROM hc_transfers t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id ORDER BY t.effective_date DESC LIMIT 1000").fetchall()]
+    try: rows = [dict(r) for r in conn.execute("SELECT t.*, a.full_name FROM hc_transfers t LEFT JOIN hc_agents a ON a.agent_id=t.agent_id ORDER BY t.effective_date DESC LIMIT 1000").fetchall()]
     finally: conn.close()
     return jsonify({'transfers': rows}), 200
 
@@ -636,11 +675,11 @@ def hc_metrics():
             transfer_filters.append("(t.from_channel=? OR t.to_channel=?)")
             transfer_args.extend([channel, channel])
         if supervisor:
-            transfer_filters.append("a.supervisor=?")
-            transfer_args.append(supervisor)
+            transfer_filters.append("(t.from_supervisor=? OR t.to_supervisor=?)")
+            transfer_args.extend([supervisor, supervisor])
         if coordinator:
-            transfer_filters.append("a.coordinator=?")
-            transfer_args.append(coordinator)
+            transfer_filters.append("(t.from_coordinator=? OR t.to_coordinator=?)")
+            transfer_args.extend([coordinator, coordinator])
         if search:
             transfer_filters.append("(lower(a.agent_id) LIKE ? OR lower(a.full_name) LIKE ?)")
             transfer_args.extend([f"%{search}%", f"%{search}%"])
