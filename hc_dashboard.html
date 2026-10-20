@@ -101,7 +101,7 @@
     .chart-bar-label { position: absolute; bottom: -22px; font-size: 8px; font-family: 'JetBrains Mono', monospace; color: #64748B; }
     .chart-bar-value { position: absolute; font-size: 8px; font-weight: 800; color: var(--navy); margin-bottom: 4px; }
 
-    /* Modales Rediseñados (Estilo Captura) */
+    /* Modales Rediseñados */
     .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15,23,42,.6); backdrop-filter: blur(4px); }
     .modal-backdrop.hidden { display: none; }
     .modal { width: 100%; max-width: 650px; max-height: calc(100vh - 40px); background: #F8FAFC; border-radius: 16px; border: 1px solid #E2E8F0; box-shadow: 0 28px 60px -30px rgba(10,51,91,.5); overflow: hidden; display: flex; flex-direction: column; }
@@ -120,7 +120,7 @@
     .field label { font-size: 10px; font-weight: 800; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
     .field input, .field select { width: 100%; min-height: 42px; border-radius: 10px; border: 1px solid #CBD5E1; background: #FFFFFF; color: #0F172A; padding: 0 12px; font-size: 13px; font-weight: 500; outline: none; transition: .15s; }
     .field input:focus, .field select:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
-    .field input:disabled { background: #F1F5F9; color: #94A3B8; cursor: not-allowed; }
+    .field input:disabled, .field select:disabled { background: #F1F5F9; color: #94A3B8; cursor: not-allowed; border-color: #E2E8F0; }
     
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .field-full { grid-column: 1 / -1; }
@@ -284,24 +284,25 @@
           <div class="field">
             <label>Supervisor</label>
             <select id="fldSupervisor" class="roster-select"><option value="">Selecciona un supervisor</option></select>
-            <button type="button" class="link-btn">+ Nuevo supervisor</button>
           </div>
           <div class="field">
             <label>Coordinador</label>
             <select id="fldCoordinator" class="roster-select"><option value="">Selecciona un coordinador</option></select>
-            <button type="button" class="link-btn">+ Nuevo coordinador</button>
           </div>
           
-          <div class="field"><label>Campaña</label><input id="fldCampaign" list="campaignList" required maxlength="120" placeholder="Selecciona una campaña"></div>
+          <div class="field">
+            <label>Campaña</label>
+            <select id="fldCampaign" class="roster-select" required>
+                <option value="">Selecciona una campaña</option>
+            </select>
+          </div>
           <div class="field">
             <label>Canal</label>
             <select id="fldChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select>
           </div>
-          <datalist id="campaignList"></datalist>
-          <datalist id="supervisorList"></datalist>
 
-          <div class="field"><label>Estado</label><select id="fldStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
-          <div class="field"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
+          <div class="field hidden" id="wrapFldStatus"><label>Estado</label><select id="fldStatus" class="roster-select"><option>Activo</option><option>Baja</option></select></div>
+          <div class="field" id="wrapFldHireDate"><label>Fecha Ingreso</label><input id="fldHireDate" type="date"></div>
         </div>
 
         <div class="form-grid" style="margin-top:16px;">
@@ -372,16 +373,23 @@
 <div id="transferModal" class="modal-backdrop hidden">
   <div class="modal" style="max-width:500px;">
     <div class="modal-header">
-      <div><h3 class="modal-title" id="transferTitle">Transferir campaña</h3><p class="modal-sub" id="transferSub"></p></div>
+      <div><h3 class="modal-title" id="transferTitle">Transferir agente</h3><p class="modal-sub" id="transferSub"></p></div>
       <button class="modal-close" onclick="closeTransferModal()">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="transferAgentId">
       <div class="form-grid">
-        <div class="field field-full"><label>Campaña destino *</label><input id="transferCampaign" list="campaignList" required maxlength="120"></div>
-        <div class="field"><label>Canal destino</label><select id="transferChannel"><option>Llamadas</option><option>Chat</option></select></div>
-        <div class="field"><label>Fecha efectiva *</label><input id="transferDate" type="date" required></div>
-        <div class="field field-full"><label>Motivo</label><input id="transferReason" maxlength="500"></div>
+        <div class="field field-full">
+          <label>Campaña destino *</label>
+          <select id="transferCampaign" class="roster-select" required>
+            <option value="">Selecciona una campaña</option>
+          </select>
+        </div>
+        <div class="field"><label>Canal destino</label><select id="transferChannel" class="roster-select"><option>Llamadas</option><option>Chat</option></select></div>
+        <div class="field"><label>Supervisor destino</label><select id="transferSupervisor" class="roster-select"></select></div>
+        <div class="field"><label>Coordinador destino</label><select id="transferCoordinator" class="roster-select"></select></div>
+        <div class="field field-full"><label>Fecha efectiva *</label><input id="transferDate" type="date" required></div>
+        <div class="field field-full"><label>Motivo</label><input id="transferReason" maxlength="500" placeholder="Ej. Cierre de campaña, reorganización..."></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -452,16 +460,13 @@ async function refreshFilters() {
     setOptions('filterSupervisor', state.supervisors, 'Todos los supervisores');
     setOptions('filterCoordinator', state.coordinators, 'Todos los coordinadores');
     
-    document.getElementById('campaignList').innerHTML = state.campaigns.map(x => `<option value="${escape(x)}"></option>`).join('');
-    document.getElementById('supervisorList').innerHTML = state.supervisors.map(x => `<option value="${escape(x)}"></option>`).join('');
-    
-    // Llenar los select del modal
-    const fillSelect = (id, items, def) => {
-        const el = document.getElementById(id);
-        if(el) el.innerHTML = `<option value="">${def}</option>` + items.map(x => `<option>${escape(x)}</option>`).join('');
-    };
-    fillSelect('fldSupervisor', state.supervisors, 'Selecciona un supervisor');
-    fillSelect('fldCoordinator', state.coordinators, 'Selecciona un coordinador');
+    // Llenar los select del modal (filtros)
+    setOptions('fldCampaign', state.campaigns, 'Selecciona una campaña');
+    setOptions('transferCampaign', state.campaigns, 'Selecciona una campaña');
+    setOptions('fldSupervisor', state.supervisors, 'Selecciona un supervisor');
+    setOptions('transferSupervisor', state.supervisors, 'Selecciona un supervisor');
+    setOptions('fldCoordinator', state.coordinators, 'Selecciona un coordinador');
+    setOptions('transferCoordinator', state.coordinators, 'Selecciona un coordinador');
     
   } catch (e) { console.warn('refreshFilters:', e); }
 }
@@ -696,15 +701,25 @@ function setValidity(type) {
 function openAgentModal(agentId = null) {
   state.editingAgent = agentId;
   document.getElementById('agentEditId').value = agentId || '';
-  document.getElementById('agentModalTitle').textContent = agentId ? `Editar · ${agentId}` : 'Nuevo agente';
-  
   const a = agentId ? state.agents.find(x => x.agentId === agentId) : null;
   const fld = id => document.getElementById(id);
 
-  fld('fldAgentId').value = a?.agentId || ''; fld('fldAgentId').disabled = !!a;
-  fld('fldFullName').value = a?.fullName || ''; fld('fldSupervisor').value = a?.supervisor || '';
-  fld('fldCoordinator').value = a?.coordinator || ''; fld('fldCampaign').value = a?.campaign || '';
-  fld('fldChannel').value = a?.channel || 'Llamadas'; fld('fldStatus').value = a?.status || 'Activo';
+  // Título dinámico
+  if (a) {
+    document.getElementById('agentModalTitle').textContent = `Editar · ${a.fullName || 'Sin nombre'} (${a.agentId})`;
+  } else {
+    document.getElementById('agentModalTitle').textContent = 'Nuevo agente';
+  }
+
+  fld('fldAgentId').value = a?.agentId || ''; 
+  fld('fldAgentId').disabled = false; // Habilitado para editar en ambos casos
+  
+  fld('fldFullName').value = a?.fullName || ''; 
+  fld('fldSupervisor').value = a?.supervisor || '';
+  fld('fldCoordinator').value = a?.coordinator || ''; 
+  fld('fldCampaign').value = a?.campaign || '';
+  fld('fldChannel').value = a?.channel || 'Llamadas'; 
+  fld('fldStatus').value = a?.status || 'Activo';
   fld('fldHireDate').value = (a?.hireDate || '').slice(0, 10);
   
   const sched = a?.schedules || {};
@@ -713,8 +728,20 @@ function openAgentModal(agentId = null) {
   fld('fldVie').value = sched.Viernes || 'DD-DD'; fld('fldSab').value = sched['Sábado'] || 'DD-DD';
   fld('fldDom').value = sched.Domingo || 'DD-DD';
   
+  // Bloqueos para edición
+  const isEdit = !!agentId;
+  fld('fldCampaign').disabled = isEdit;
+  fld('fldChannel').disabled = isEdit;
+  fld('fldStatus').disabled = isEdit;
+  fld('fldHireDate').disabled = isEdit;
+  fld('fldSupervisor').disabled = isEdit;
+  fld('fldCoordinator').disabled = isEdit;
+
+  // Ocultar Estatus para Nuevo Agente
+  document.getElementById('wrapFldStatus').classList.toggle('hidden', !isEdit);
+
   // Vigencia
-  if (agentId) {
+  if (isEdit) {
     document.getElementById('validitySection').classList.remove('hidden');
     setValidity('permanent');
     fld('fldValidityStart').value = new Date().toISOString().slice(0, 10);
@@ -726,6 +753,7 @@ function openAgentModal(agentId = null) {
 
   document.getElementById('agentModal').classList.remove('hidden');
 }
+
 function closeAgentModal() { document.getElementById('agentModal').classList.add('hidden'); state.editingAgent = null; }
 
 async function saveAgent(event) {
@@ -805,10 +833,14 @@ async function submitTermination() {
 
 function openTransferModal(agentId) {
   const a = state.agents.find(x => x.agentId === agentId);
-  document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''} · actualmente ${a.campaign} (${a.channel})`;
+  document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
   document.getElementById('transferAgentId').value = agentId;
-  document.getElementById('transferCampaign').value = '';
+  
+  document.getElementById('transferCampaign').value = a?.campaign || '';
   document.getElementById('transferChannel').value = a?.channel || 'Llamadas';
+  document.getElementById('transferSupervisor').value = a?.supervisor || '';
+  document.getElementById('transferCoordinator').value = a?.coordinator || '';
+  
   document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('transferReason').value = '';
   document.getElementById('transferModal').classList.remove('hidden');
@@ -821,10 +853,17 @@ async function submitTransfer() {
     const id = document.getElementById('transferAgentId').value;
     const toCampaign = document.getElementById('transferCampaign').value.trim();
     const toChannel = document.getElementById('transferChannel').value;
+    const toSupervisor = document.getElementById('transferSupervisor').value.trim();
+    const toCoordinator = document.getElementById('transferCoordinator').value.trim();
     const effectiveDate = document.getElementById('transferDate').value;
     const reason = document.getElementById('transferReason').value.trim();
+    
     if (!toCampaign) throw new Error('Indica la campaña destino.');
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { toCampaign, toChannel, effectiveDate, reason: reason || 'Transferencia de campaña', actorMode: 'operaciones' });
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, { 
+        toCampaign, toChannel, toSupervisor, toCoordinator, effectiveDate, 
+        reason: reason || 'Transferencia registrada', actorMode: 'operaciones' 
+    });
+    
     toast(`Transferencia registrada.`); closeTransferModal(); await refreshAll();
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
