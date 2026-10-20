@@ -370,7 +370,7 @@ function toast(msg, kind = 'success') {
   el.textContent = msg;
   el.className = `toast is-visible ${kind === 'error' ? 'is-error' : ''}`;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('is-visible'), 3000);
+  toast._t = setTimeout(() => el.classList.remove('is-visible'), 4000);
 }
 
 function debounceLoadAgents() {
@@ -739,14 +739,23 @@ async function importFile(event) {
     try {
         data = await r.json();
     } catch (err) {
-        throw new Error('El servidor tardó demasiado en responder (Timeout). Intenta con un archivo más pequeño o revisa la consola de PythonAnywhere.');
+        throw new Error('El servidor tardó demasiado en responder. Intenta con un archivo más pequeño.');
     }
     
     if (!r.ok) throw new Error(data.error || 'Error al importar.');
     
-    toast(`Importación: ${data.imported} agente(s) guardados.`);
-    if(data.errors && data.errors.length > 0) {
-        console.warn("Filas con observaciones:", data.errors);
+    if (data.imported === 0) {
+        if (data.errors && data.errors.length > 0) {
+            const sample = data.errors.slice(0, 3).map(e => `Fila ${e.row}: ${e.error}`).join('\n');
+            alert(`No se pudo importar ningún agente.\n\nPrimeros errores encontrados:\n${sample}\n\nRevisa que las columnas coincidan con la plantilla.`);
+        } else {
+            alert('El archivo se leyó pero no contenía filas válidas o las columnas no coinciden con la plantilla.');
+        }
+    } else {
+        toast(`Importación exitosa: ${data.imported} agente(s) guardados.`);
+        if (data.errors && data.errors.length > 0) {
+            console.warn("Filas con observaciones:", data.errors);
+        }
     }
     
     await refreshAll();
