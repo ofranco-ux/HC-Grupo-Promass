@@ -649,7 +649,22 @@ def hc_list_people():
     _init_db()
     conn = _conn()
     try:
-        rows = [dict(r) for r in conn.execute("SELECT * FROM hc_people_catalog ORDER BY role, name").fetchall()]
+        rows = [dict(r) for r in conn.execute("SELECT role, name FROM hc_people_catalog").fetchall()]
+        seen = {(r['role'], r['name']) for r in rows}
+        
+        # Agregar supervisores de la tabla de agentes
+        for r in conn.execute("SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> ''"):
+            if ('supervisor', r[0]) not in seen:
+                rows.append({'role': 'supervisor', 'name': r[0]})
+                seen.add(('supervisor', r[0]))
+                
+        # Agregar coordinadores de la tabla de agentes
+        for r in conn.execute("SELECT DISTINCT coordinator FROM hc_agents WHERE coordinator <> ''"):
+            if ('coordinator', r[0]) not in seen:
+                rows.append({'role': 'coordinator', 'name': r[0]})
+                seen.add(('coordinator', r[0]))
+                
+        rows.sort(key=lambda x: (x['role'], x['name']))
         return jsonify({'people': rows}), 200
     finally:
         conn.close()
@@ -858,7 +873,12 @@ def hc_list_supervisors():
     _init_db()
     conn = _conn()
     try: 
-        rows = [r['name'] for r in conn.execute("SELECT name FROM hc_people_catalog WHERE role='supervisor' ORDER BY name").fetchall()]
+        rows = [r[0] for r in conn.execute("""
+            SELECT name FROM hc_people_catalog WHERE role='supervisor'
+            UNION
+            SELECT DISTINCT supervisor FROM hc_agents WHERE supervisor <> ''
+            ORDER BY 1
+        """).fetchall()]
     finally: conn.close()
     return jsonify({'supervisors': rows}), 200
 
