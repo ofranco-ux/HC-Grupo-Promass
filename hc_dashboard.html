@@ -608,7 +608,6 @@ async function refreshMetrics() {
     document.getElementById('kpiNewHires').textContent = m.activeNewHires;
     document.getElementById('kpiCampaigns').textContent = m.byCampaign.length;
     
-    // AHORA USAMOS LOS VALORES DEL BACKEND
     document.getElementById('kpiSupervisors').textContent = m.uniqueSupervisors || 0;
     document.getElementById('kpiCoordinators').textContent = m.uniqueCoordinators || 0;
     
@@ -1096,7 +1095,7 @@ function exportBaseCsv() {
   window.location.href = '/api/hc/export?mode=base';
 }
 
-function exportHistoricalCsv() {
+async function exportHistoricalCsv() {
   const start = document.getElementById('rosterEffectiveStart').value;
   const end = document.getElementById('rosterEffectiveEnd').value;
   
@@ -1110,7 +1109,27 @@ function exportHistoricalCsv() {
   params.set('startDate', start);
   params.set('endDate', end);
   
-  window.location.href = '/api/hc/export?' + params.toString();
+  try {
+    const response = await fetch('/api/hc/export?' + params.toString());
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Error al generar la descarga.');
+    }
+    
+    // Descargar el blob
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `HC_history_${start}_${end}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 async function importFile(event) {
@@ -1133,6 +1152,7 @@ async function importFile(event) {
   event.target.value = ''; // reset
 }
 
+// Inicializar la carga de datos cuando la página esté lista
 document.addEventListener('DOMContentLoaded', () => {
     refreshAll();
 });
