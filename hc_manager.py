@@ -348,6 +348,178 @@ def _send_otp_email(email, code):
         print(f"\n[ERROR] No se pudo enviar correo a {email}: {e}\nCódigo generado: {code}\n")
         return False
 
+def _row_to_agent(row):
+    if not row: return None
+    today = _today()
+    d = {
+        'agentId': row['agent_id'], 'fullName': row['full_name'] or '', 'role': row['role'] or 'Agente',
+        'isNewHire': bool(row['is_new_hire']),
+        'supervisor': row['supervisor'] or '', 'coordinator': row['coordinator'] or '', 
+        'campaign': row['campaign'] or '', 'channel': row['channel'] or 'Llamadas',
+        'status': row['status'] or 'Activo', 'hireDate': row['hire_date'], 'terminationDate': row['termination_date'],
+        'terminationReason': row['termination_reason'] or '', 'schedules': {
+            'Lunes': row['lunes'] or 'DD-DD', 'Martes': row['martes'] or 'DD-DD', 'Miércoles': row['miercoles'] or 'DD-DD',
+            'Jueves': row['jueves'] or 'DD-DD', 'Viernes': row['viernes'] or 'DD-DD', 'Sábado': row['sabado'] or 'DD-DD', 'Domingo': row['domingo'] or 'DD-DD',
+        },
+        'email': row['email'] or '', 'employeeNumber': row['employee_number'] or '', 'notes': row['notes'] or '',
+        'createdAt': row['created_at'], 'updatedAt': row['updated_at'], 'updatedBy': row['updated_by'] or '',
+    }
+    if row['termination_date']:
+        d['displayStatus'] = 'Baja programada' if row['termination_date'] > today else 'Baja'
+        d['terminationPending'] = row['termination_date'] > today
+    elif str(row['status']).strip().title() == 'Baja':
+        d['displayStatus'] = 'Baja'
+        d['terminationPending'] = False
+    else:
+        d['displayStatus'] = 'Activo'
+        d['terminationPending'] = False
+    return d
+
+def _fetch_agent(conn, agent_id):
+    return _row_to_agent(conn.execute("SELECT * FROM hc_agents WHERE agent_id=?", (agent_id,)).fetchone())
+
+def _diff_agents(before, after):
+    out = {}
+    if not before or not after: return out
+    for k in ('fullName', 'supervisor', 'coordinator', 'campaign', 'channel', 'hireDate', 'role', 'isNewHire'):
+        if before.get(k) != after.get(k): out[k] = {'before': before.get(k), 'after': after.get(k)}
+    if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
+    return out
+
+def _ensure_people_catalog(conn, supervisor, coordinator):
+    now = _now()
+    if supervisor:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('supervisor', ?, ?)", (supervisor.strip(), now))
+    if coordinator:
+        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('coordinator', ?, ?)", (coordinator.strip(), now))
+
+def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
+    new_id = str((payload or {}).get('agentId') or '').strip()
+    if not new_id: raise ValueError('El ID del agente es obligatorio.')
+    
+    role = str(payload.get('role') or 'Agente').strip()[:120]
+    is_non_operative = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh', 'supervisor', 'coordinador', 'qa'])
+    
+    campaign = str((payload or {}).get('campaign') or '').strip()
+    if not campaign and not is_non_operative: raise ValueError('La campaña es obligatoria.')
+    if not campaign and is_non_operative: campaign = 'Administrativo'
+
+    before = _fetch_agent(conn, old_id)
+    if before is None and not allow_create: raise ValueError('No se encontró el agente.')
+
+    supervisor = str(payload.get('supervisor') or '').strip()[:120]
+    coordinator = str(payload.get('coordinator') or '').strip()[:120]
+    is_new_hire = 1 if payload.get('isNewHire') else 0
+    _ensure_people_catalog(conn, supervisor, coordinator)
+
+    if before and old_id != new_id:
+        if conn.execute("SELECT 1 FROM hc_agents WHERE agent_id=?", (new_id,)).fetchone():
+            raise ValueError('El nuevo ID de agente ya existe.')
+        conn.execute("UPDATE hc_terminations SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_transfers SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_absences SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_schedule_overrides SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+        conn.execute("UPDATE hc_history SET agent_id=? WHERE agent_id=?", (new_id, old_id))
+
+    schedules = payload.get('schedules') or {}
+    days = {d: _validate_schedule(schedules.get(d, (before or {}).get('schedules', {}).get(d, 'DD-DD'))) for d in ROSTER_DAYS}
+
+    hire_date = payload.get('hireDate')
+    if hire_date: 
+        hire_date = _validate_date(hire_date, 'fecha de ingreso')
+    elif before is None: 
+        hire_date = None
+
+    now = _now()
+    validity = payload.get('validity') or {}
+    is_temp = validity.get('type') == 'temporary'
+    
+    values = (
+        str(payload.get('fullName') or '').strip()[:120], role, is_new_hire, supervisor,
+        coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
+        hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
+        str(payload.get('notes') or '').strip()[:500], 
+        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo']
+    )
+
+    if before is None:
+        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values + (now, now, actor))
+        _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[5], 'channel': values[6], 'supervisor': values[3], 'coordinator': values[4], 'hireDate': hire_date, 'isNewHire': bool(is_new_hire)}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
+    else:
+        if is_temp:
+            update_values = values[:11] + (
+                before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
+                before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
+            )
+        else:
+            update_values = values
+            
+        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (now, actor, old_id))
+        
+        if is_temp:
+            start = _validate_date(validity.get('startDate'), 'fecha inicio')
+            end = _validate_date(validity.get('endDate'), 'fecha fin')
+            if start > end: raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
+            reason = str(validity.get('reason') or 'Cambio temporal')[:500]
+            
+            conn.execute("""
+                INSERT INTO hc_schedule_overrides (agent_id, start_date, end_date, schedules_json, reason, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (new_id, start, end, json.dumps(days), reason, now, actor))
+            
+            _log_history(conn, new_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
+
+        after = _fetch_agent(conn, new_id)
+        if not is_temp and _diff_agents(before, after): 
+            _log_history(conn, new_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
+            
+    return _fetch_agent(conn, new_id)
+
+def _format_history_detail(h):
+    details = []
+    change_type = h['change_type']
+    before = json.loads(h['before_json']) if h['before_json'] else {}
+    after = json.loads(h['after_json']) if h['after_json'] else {}
+    
+    if change_type == 'agent_created':
+        details.append(f"Alta en: {after.get('campaign', '')}")
+        details.append(f"Puesto: {after.get('role', '')}")
+    elif change_type in ('agent_updated', 'temporary_schedule_applied'):
+        for k, label in [('campaign', 'Campaña'), ('supervisor', 'Supervisor'), ('coordinator', 'Coordinador'), ('role', 'Puesto'), ('channel', 'Canal'), ('status', 'Estado')]:
+            if before.get(k) != after.get(k):
+                details.append(f"{label}: {before.get(k, '')} -> {after.get(k, '')}")
+        
+        if before.get('isNewHire') != after.get('isNewHire'):
+            details.append(f"Tipo: {'New Hire' if before.get('isNewHire') else 'Operativo'} -> {'New Hire' if after.get('isNewHire') else 'Operativo'}")
+
+        if before.get('schedules') != after.get('schedules'):
+            days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+            sch_changes = []
+            for d in days:
+                if before.get('schedules', {}).get(d) != after.get('schedules', {}).get(d):
+                    sch_changes.append(f"{d}: {before.get('schedules',{}).get(d)} -> {after.get('schedules',{}).get(d)}")
+            if sch_changes:
+                details.append("Horarios: " + ", ".join(sch_changes))
+        
+        if change_type == 'temporary_schedule_applied':
+            details.append(f"Temporal: {after.get('startDate')} al {after.get('endDate')}")
+            
+    elif change_type == 'agent_terminated':
+        details.append(f"Motivo: {h['reason']}")
+        details.append(f"Fecha: {after.get('terminationDate')}")
+        
+    elif change_type == 'agent_transferred':
+        if before.get('campaign') != after.get('toCampaign'): details.append(f"Campaña: {before.get('campaign')} -> {after.get('toCampaign')}")
+        if before.get('supervisor') != after.get('toSupervisor'): details.append(f"Supervisor: {before.get('supervisor')} -> {after.get('toSupervisor')}")
+        if before.get('coordinator') != after.get('toCoordinator'): details.append(f"Coordinador: {before.get('coordinator')} -> {after.get('toCoordinator')}")
+        if before.get('role') != after.get('toRole'): details.append(f"Puesto: {before.get('role')} -> {after.get('toRole')}")
+        if after.get('effectiveDate'): details.append(f"Efectiva: {after.get('effectiveDate')}")
+        
+    elif change_type in ('vacation_created', 'incapacity_created'):
+        details.append(f"Periodo: {after.get('startDate')} al {after.get('endDate')}")
+        
+    return " | ".join(details) if details else (h['reason'] or '')
+
 hc_bp = Blueprint('hc_manager', __name__)
 
 @hc_bp.before_request
@@ -1396,11 +1568,13 @@ def hc_bulk_terminate():
     except ValueError as e: return jsonify({'error': str(e)}), 400
     except Exception as e: return jsonify({'error': f'Error en baja masiva: {e}'}), 500
 
+# --- INICIALIZACIÓN GLOBAL (CRUCIAL PARA PYTHONANYWHERE) ---
+# Al crear la app aquí, aseguramos que _init_db() se ejecute antes de que WSGI la importe.
+_init_db()
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
 app.register_blueprint(hc_bp)
 
 if __name__ == '__main__':
-    _init_db()
     port = int(os.environ.get('HC_PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
