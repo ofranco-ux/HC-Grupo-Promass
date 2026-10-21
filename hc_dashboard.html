@@ -32,7 +32,7 @@
     .header-sub-title { font-size: 10px; font-weight: 700; color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
 
     .roster-head-actions { display: flex; align-items: center; gap: 8px; }
-    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; display: flex; align-items: center; justify-content: center;}
+    .roster-head-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #FFF; font-size: 10px; font-weight: 800; cursor: pointer; transition: .15s; display: flex; align-items: center; justify-content: center; text-decoration: none;}
     .roster-head-btn:hover { background: rgba(255,255,255,0.1); border-color: #FFF; }
     .roster-head-btn.gold { background: var(--gold); border-color: var(--gold); color: var(--navy); }
     .roster-head-btn.gold:hover { background: var(--gold-hover); }
@@ -40,6 +40,8 @@
     .roster-head-btn.white:hover { background: #F1F5F9; }
     .roster-head-btn.secondary { background: rgba(255,255,255,0.05); border-color: transparent; color: #9BB5D6; }
     .roster-head-btn.secondary:hover { background: rgba(255,255,255,0.1); color: #FFF; }
+    .roster-head-btn.danger { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #FCA5A5; }
+    .roster-head-btn.danger:hover { background: rgba(239, 68, 68, 0.4); color: #FFF; border-color: #EF4444; }
     
     /* KPIS */
     .roster-kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; padding: 20px 24px; background: var(--bg-main); border-bottom: 1px solid #CBD5E1; }
@@ -207,6 +209,10 @@
             <button class="roster-head-btn gold" onclick="document.getElementById('fileInput').click()">Carga Excel</button>
             <button class="roster-head-btn white" onclick="openAgentModal()">+ Agente</button>
             <input id="fileInput" type="file" accept=".xlsx,.csv" style="display:none" onchange="importFile(event)">
+            
+            <div style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+            <span id="loggedUser" style="font-size:10px; color:#9BB5D6; font-weight:600; margin-right:8px;"></span>
+            <a href="/logout" class="roster-head-btn danger">Salir</a>
         </div>
     </div>
 
@@ -568,12 +574,14 @@ const state = { agents: [], campaigns: [], supervisors: [], coordinators: [], de
 const api = {
   async get(url) {
     const r = await fetch(url, {cache: 'no-store'});
+    if (r.status === 401) { window.location.href = '/login'; throw new Error('No autorizado'); }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     return data;
   },
   async send(method, url, body) {
     const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {}) });
+    if (r.status === 401) { window.location.href = '/login'; throw new Error('No autorizado'); }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     return data;
@@ -599,9 +607,17 @@ async function updateDashboard() {
 }
 
 async function refreshAll() {
+  await loadUserInfo();
   await loadAgents();
   await refreshMetrics();
   await refreshFilters();
+}
+
+async function loadUserInfo() {
+  try {
+    const data = await api.get('/api/hc/me');
+    document.getElementById('loggedUser').textContent = data.email;
+  } catch(e) {}
 }
 
 async function refreshFilters() {
@@ -959,7 +975,6 @@ async function saveAgent(event) {
       channel: document.getElementById('fldChannel').value,
       hireDate: document.getElementById('fldHireDate').value || null,
       status: document.getElementById('fldStatus').value,
-      actorMode: 'operaciones',
       schedules: {
         'Lunes': document.getElementById('fldLun').value, 'Martes': document.getElementById('fldMar').value,
         'Miércoles': document.getElementById('fldMie').value, 'Jueves': document.getElementById('fldJue').value,
@@ -1014,7 +1029,7 @@ async function submitTermination() {
     const reason = document.getElementById('terminateReason').value.trim();
     const rehireable = document.getElementById('terminateRehireable').checked;
     const id = document.getElementById('terminateAgentId').value;
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable, actorMode: 'operaciones' });
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/terminate`, { terminationDate: date, reason: reason || 'Baja registrada', rehireable });
     toast(`Baja registrada.`); closeTerminateModal(); await refreshAll();
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
 }
@@ -1022,19 +1037,17 @@ async function submitTermination() {
 async function reactivateAgent(agentId) {
   if (!confirm(`¿Estás seguro de reactivar al agente ${agentId}?`)) return;
   try {
-    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, { actorMode: 'operaciones' });
+    await api.send('POST', `/api/hc/agents/${encodeURIComponent(agentId)}/reactivate`, {});
     toast('Agente reactivado.');
     await refreshAll();
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// Lógica para ocultar campos operativos si es Administrativo
 function toggleTransferFields() {
   const roleValue = document.getElementById('transferRole').value;
   const opsFields = document.getElementById('transferOpsFields');
   const campaignField = document.getElementById('transferCampaign');
   
-  // Si el rol seleccionado NO es Agente, ocultamos los campos operativos
   const isNonOperative = ['Supervisor', 'Coordinador', 'Staff QA', 'Formador', 'QA', 'Administrativo'].includes(roleValue);
   
   if (isNonOperative) {
@@ -1053,11 +1066,9 @@ async function openTransferModal(agentId) {
   document.getElementById('transferSub').textContent = `${a.agentId} · ${a.fullName || ''}`;
   document.getElementById('transferAgentId').value = agentId;
   
-  // Seleccionar el rol actual del agente en el dropdown
   const currentRole = a?.role || 'Agente';
   const roleSelect = document.getElementById('transferRole');
   
-  // Si el rol actual no está en las opciones (por ejemplo, un rol personalizado previo), lo agregamos temporalmente
   if (!Array.from(roleSelect.options).some(opt => opt.value === currentRole)) {
       const newOpt = document.createElement('option');
       newOpt.value = currentRole;
@@ -1074,7 +1085,7 @@ async function openTransferModal(agentId) {
   document.getElementById('transferDate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('transferReason').value = '';
   
-  toggleTransferFields(); // Evaluar si se ocultan los campos o no
+  toggleTransferFields(); 
   document.getElementById('transferModal').classList.remove('hidden');
 }
 function closeTransferModal() { document.getElementById('transferModal').classList.add('hidden'); }
@@ -1098,7 +1109,7 @@ async function submitTransfer() {
 
     const payload = {
         toRole, toCampaign, toChannel, toSupervisor, toCoordinator,
-        effectiveDate, reason, actorMode: 'operaciones'
+        effectiveDate, reason
     };
     await api.send('POST', `/api/hc/agents/${encodeURIComponent(id)}/transfer`, payload);
     toast('Transferencia registrada.');
@@ -1121,7 +1132,7 @@ async function submitAbsence() {
     if (!agentId) throw new Error('Selecciona un agente.');
     if (!startDate || !endDate) throw new Error('Las fechas son obligatorias.');
 
-    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason, actorMode: 'operaciones' });
+    await api.send('POST', '/api/hc/absences', { agentId, absenceType, startDate, endDate, reason });
     toast('Ausencia registrada.');
     closeAbsenceModal(); await refreshAll();
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
@@ -1137,7 +1148,7 @@ async function submitPerson() {
     const name = document.getElementById('peopleName').value.trim();
     if (!name) throw new Error('El nombre es obligatorio.');
 
-    await api.send('POST', '/api/hc/people', { role, name, actorMode: 'operaciones' });
+    await api.send('POST', '/api/hc/people', { role, name });
     toast('Persona registrada.');
     closePeopleModal(); await refreshFilters();
   } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
@@ -1156,6 +1167,7 @@ async function exportBaseCsv() {
 
   try {
     const response = await fetch('/api/hc/export?' + params.toString());
+    if (response.status === 401) { window.location.href = '/login'; return; }
     if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Error al generar la descarga base.');
@@ -1196,6 +1208,7 @@ async function exportHistoricalCsv() {
   
   try {
     const response = await fetch('/api/hc/export?' + params.toString());
+    if (response.status === 401) { window.location.href = '/login'; return; }
     if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Error al generar la descarga histórica.');
@@ -1219,9 +1232,9 @@ async function importFile(event) {
   if (!file) return;
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('actorMode', 'operaciones');
   try {
     const r = await fetch('/api/hc/import', { method: 'POST', body: formData });
+    if (r.status === 401) { window.location.href = '/login'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Error al importar');
     toast(`Importados: ${data.imported} registros.`);
@@ -1234,13 +1247,9 @@ async function importFile(event) {
   event.target.value = ''; // reset
 }
 
-// ==========================================
-// LÓGICA DETALLADA DE LA BITÁCORA GLOBAL
-// ==========================================
 async function openHistoryModal() {
   document.getElementById('historyModal').classList.remove('hidden');
   
-  // Poner fechas por defecto (este mes)
   const today = new Date();
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
   
@@ -1275,12 +1284,10 @@ async function loadHistory() {
     } else {
       document.getElementById('historyTableBody').innerHTML = history.map(h => {
         
-        // Formatear fecha
         let dt = new Date(h.changedAt);
         let dateStr = dt.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
         let timeStr = dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
-        // Nombre del Agente (buscando en el JSON si ya no existe en la DB actual)
         let agentName = '';
         if (h.after && h.after.fullName) agentName = h.after.fullName;
         else if (h.before && h.before.fullName) agentName = h.before.fullName;
@@ -1289,7 +1296,6 @@ async function loadHistory() {
             if (currentAgent) agentName = currentAgent.fullName;
         }
 
-        // Generar Etiquetas de Tipo
         let badgeClass = 'update';
         let typeLabel = 'Actualización';
         
@@ -1301,7 +1307,6 @@ async function loadHistory() {
         else if (h.changeType === 'incapacity_created') { badgeClass = 'time'; typeLabel = 'Incapacidad'; }
         else if (h.changeType === 'agent_reactivated') { badgeClass = 'create'; typeLabel = 'Reactivación'; }
 
-        // Generar Detalles del Cambio
         let detailsHtml = [];
         
         if (h.changeType === 'agent_created') {
@@ -1334,7 +1339,6 @@ async function loadHistory() {
                 }
             });
 
-            // Comparar horarios
             if (h.before && h.after && h.before.schedules && h.after.schedules) {
                 const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
                 let schedChanges = [];
@@ -1411,6 +1415,7 @@ async function exportHistoryCsv() {
 
   try {
     const response = await fetch('/api/hc/history/export?' + params.toString());
+    if (response.status === 401) { window.location.href = '/login'; return; }
     if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Error al generar la descarga.');
@@ -1431,7 +1436,6 @@ async function exportHistoryCsv() {
 
 function closeHistoryModal() { document.getElementById('historyModal').classList.add('hidden'); }
 
-// Inicializar la carga de datos cuando la página esté lista
 document.addEventListener('DOMContentLoaded', () => {
     refreshAll();
 });
