@@ -534,6 +534,7 @@ def require_login():
 
 @hc_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    _init_db() # <--- CORRECCIÓN: Fuerza la creación de tablas al entrar
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if email in ALLOWED_EMAILS:
@@ -555,6 +556,7 @@ def login():
 
 @hc_bp.route('/verify', methods=['POST'])
 def verify():
+    _init_db() # <--- CORRECCIÓN: Fuerza la creación de tablas al verificar
     email = request.form.get('email', '').strip().lower()
     code = request.form.get('code', '').strip()
     
@@ -1569,7 +1571,6 @@ def hc_bulk_terminate():
     except Exception as e: return jsonify({'error': f'Error en baja masiva: {e}'}), 500
 
 # --- INICIALIZACIÓN GLOBAL (CRUCIAL PARA PYTHONANYWHERE) ---
-# Al crear la app aquí, aseguramos que _init_db() se ejecute antes de que WSGI la importe.
 _init_db()
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
