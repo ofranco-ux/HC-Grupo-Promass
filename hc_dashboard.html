@@ -75,6 +75,7 @@
     .roster-agent-name { font-weight: 700; color: var(--navy); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
     .roster-schedule { display: inline-flex; min-height: 24px; padding: 0 8px; align-items: center; border-radius: 6px; background: #F1F5F9; color: #475569; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; }
     .roster-schedule.off { background: #F8FAFC; color: #94A3B8; }
+    .roster-schedule.temp { background: #FEF3C7; color: #92400E; box-shadow: inset 0 0 0 1px #FCD34D; }
     
     .roster-status { display: inline-flex; min-height: 22px; padding: 0 8px; align-items: center; border-radius: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-right: 4px; }
     .roster-status.active { background: #DCFCE7; color: #166534; }
@@ -732,7 +733,8 @@ function renderAgents() {
     const dayChip = k => {
       const v = sched[k] || 'DD-DD';
       const off = v === 'DD-DD' ? 'off' : '';
-      return `<td><span class="roster-schedule ${off}">${escape(v)}</span></td>`;
+      const temp = (a.tempDays || []).includes(k) ? 'temp' : '';
+      return `<td><span class="roster-schedule ${off} ${temp}" ${temp ? 'title="Horario temporal vigente en el rango"' : ''}>${escape(v)}</span></td>`;
     };
 
     return `
