@@ -988,8 +988,14 @@ def hc_metrics():
         active_at_start = active + terminations - new_hires
         if active_at_start <= 0:
             active_at_start = active
-            
-        attrition = round((float(terminations) / float(active_at_start) * 100.0), 2) if active_at_start > 0 else 0.0
+
+        # NUEVA FÓRMULA DE ROTACIÓN: Bajas / (Activos + Bajas) * 100
+        hc_base_rotacion = active + terminations
+        if hc_base_rotacion <= 0:
+            attrition = 0.0
+        else:
+            attrition = round((float(terminations) / float(hc_base_rotacion) * 100.0), 2)
+
         net_change = new_hires - terminations
 
     finally:
@@ -1107,7 +1113,6 @@ def hc_export_csv():
             except ValueError:
                 return jsonify({'error': 'Formato de fecha inválido.'}), 400
 
-            # SE AGREGAN FECHA DE INGRESO Y BAJA AL HEADER DEL HISTÓRICO
             writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Fecha Ingreso', 'Fecha Baja', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
             
             current_date = start_date
@@ -1168,7 +1173,6 @@ def hc_export_csv():
 
                     if status_filter and hist_status != status_filter: continue
 
-                    # SE AGREGAN LAS VARIABLES a['hireDate'] y a['terminationDate'] AL ROW
                     writer.writerow([
                         date_str, a['agentId'], a['fullName'], a['hireDate'] or '', a['terminationDate'] or '',
                         hist_role, hist_supervisor, hist_coordinator,
