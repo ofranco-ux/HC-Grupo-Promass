@@ -173,7 +173,10 @@ def _init_db():
             abs_columns = [r[1] for r in conn.execute("PRAGMA table_info(hc_absences)").fetchall()]
             if 'status' not in abs_columns:
                 conn.execute("ALTER TABLE hc_absences ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'")
+            if 'reason' not in abs_columns:
                 conn.execute("ALTER TABLE hc_absences ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+            if 'created_by' not in abs_columns:
+                conn.execute("ALTER TABLE hc_absences ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
 
             conn.commit()
             HC_DB_READY = True
@@ -821,14 +824,12 @@ def hc_export_history_csv():
         dt = datetime.strptime(r['changed_at'][:19], '%Y-%m-%dT%H:%M:%S')
         date_str = dt.strftime('%d/%m/%Y %H:%M')
         
-        # Buscar nombre del agente
         agent_name = ''
         before = json.loads(r['before_json']) if r['before_json'] else {}
         after = json.loads(r['after_json']) if r['after_json'] else {}
         if after.get('fullName'): agent_name = after.get('fullName')
         elif before.get('fullName'): agent_name = before.get('fullName')
         
-        # Formatear tipo de cambio
         type_label = r['change_type']
         if type_label == 'agent_created': type_label = 'Alta'
         elif type_label == 'agent_updated': type_label = 'Actualización'
