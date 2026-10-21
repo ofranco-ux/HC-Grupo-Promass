@@ -9,9 +9,13 @@ import json
 import sqlite3
 import threading
 import unicodedata
+import smtplib
+import ssl
+import secrets
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from collections import defaultdict
-from functools import wraps
 from flask import Flask, Blueprint, request, jsonify, send_file, send_from_directory, session, redirect, url_for, render_template_string
 
 try:
@@ -27,6 +31,13 @@ HC_HTML_FILE = 'hc_dashboard.html'
 HC_LOCK = threading.RLock()
 HC_DB_READY = False
 
+# CONFIGURACIÓN SMTP (Correo Saliente)
+SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com') # Cambiar si usan otro servidor
+SMTP_PORT = int(os.environ.get('SMTP_PORT', 465))
+SMTP_USER = os.environ.get('SMTP_USER', '') # Tu correo corporativo o Gmail
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '') # Contraseña o App Password
+SMTP_SENDER_NAME = "HeadCount · Grupo Promass"
+
 # LISTA BLANCA DE CORREOS AUTORIZADOS
 ALLOWED_EMAILS = {
     'scarrera@gpmass.com', 'vpalomares@gpmass.com', 'amontiel@gpmass.com',
@@ -37,7 +48,7 @@ ALLOWED_EMAILS = {
     'ofranco@gpmass.com', 'eperez@gpmass.com'
 }
 
-# DISEÑO DE LA PANTALLA DE LOGIN
+# DISEÑO DE LA PANTALLA DE LOGIN (PASO 1 Y PASO 2)
 LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
@@ -55,29 +66,42 @@ LOGIN_TEMPLATE = """
         .subtitle { font-size: 11px; color: #64748B; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 800; }
         .input-group { text-align: left; margin-bottom: 20px; }
         .input-group label { display: block; font-size: 10px; font-weight: 800; color: #64748B; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .input-group input { width: 100%; padding: 12px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.15s; }
+        .input-group input { width: 100%; padding: 12px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.15s; text-align: center; }
         .input-group input:focus { border-color: #0A335B; box-shadow: 0 0 0 3px rgba(10,51,91,0.15); }
         .btn-login { width: 100%; padding: 14px; background: #EAB52D; color: #0A335B; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; transition: 0.15s; text-transform: uppercase; letter-spacing: 0.5px;}
         .btn-login:hover { background: #DCA421; }
         .error { background: #FEE2E2; color: #991B1B; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 20px; font-weight: 700; border: 1px solid #FCA5A5; }
+        .success { background: #ECFDF5; color: #065F46; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 20px; font-weight: 700; border: 1px solid #A7F3D0; }
     </style>
 </head>
 <body>
     <div class="login-card">
         <div class="logo">GRUPO <span>PROMASS</span></div>
-        <div class="subtitle">HeadCount · Acceso Restringido</div>
+        <div class="subtitle">HeadCount · Acceso Seguro</div>
         
         {% if error %}
         <div class="error">{{ error }}</div>
         {% endif %}
-        
-        <form method="POST">
-            <div class="input-group">
-                <label>Correo Corporativo Autorizado</label>
-                <input type="email" name="email" placeholder="usuario@gpmass.com" required autofocus>
-            </div>
-            <button type="submit" class="btn-login">Ingresar al sistema</button>
-        </form>
+
+        {% if step == 'email' %}
+            <form method="POST" action="/login">
+                <div class="input-group">
+                    <label>Correo Autorizado</label>
+                    <input type="email" name="email" placeholder="usuario@gpmass.com" required autofocus style="text-align:left;">
+                </div>
+                <button type="submit" class="btn-login">Enviar Código de Acceso</button>
+            </form>
+        {% else %}
+            <div class="success">Código enviado a <b>{{ email }}</b>. Revisa tu bandeja de entrada (y la carpeta de spam).</div>
+            <form method="POST" action="/verify">
+                <input type="hidden" name="email" value="{{ email }}">
+                <div class="input-group">
+                    <label>Código de 6 Dígitos</label>
+                    <input type="text" name="code" placeholder="000000" maxlength="6" required autofocus style="font-size:24px; letter-spacing: 8px; font-family: monospace;">
+                </div>
+                <button type="submit" class="btn-login">Verificar e Ingresar</button>
+            </form>
+        {% endif %}
     </div>
 </body>
 </html>
@@ -112,6 +136,12 @@ CREATE TABLE IF NOT EXISTS hc_agents (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     updated_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS hc_login_otps (
+    email TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS hc_history (
@@ -286,187 +316,46 @@ def _log_history(conn, agent_id, change_type, before, after, reason='', effectiv
     conn.execute("""INSERT INTO hc_history (agent_id, change_type, before_json, after_json, reason, effective_date, changed_at, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (agent_id, change_type, json.dumps(before, ensure_ascii=False) if before else None, json.dumps(after, ensure_ascii=False) if after else None, str(reason or '')[:500], effective_date, _now(), str(actor or 'operaciones')[:80]))
 
-def _row_to_agent(row):
-    if not row: return None
-    today = _today()
-    d = {
-        'agentId': row['agent_id'], 'fullName': row['full_name'] or '', 'role': row['role'] or 'Agente',
-        'isNewHire': bool(row['is_new_hire']),
-        'supervisor': row['supervisor'] or '', 'coordinator': row['coordinator'] or '', 
-        'campaign': row['campaign'] or '', 'channel': row['channel'] or 'Llamadas',
-        'status': row['status'] or 'Activo', 'hireDate': row['hire_date'], 'terminationDate': row['termination_date'],
-        'terminationReason': row['termination_reason'] or '', 'schedules': {
-            'Lunes': row['lunes'] or 'DD-DD', 'Martes': row['martes'] or 'DD-DD', 'Miércoles': row['miercoles'] or 'DD-DD',
-            'Jueves': row['jueves'] or 'DD-DD', 'Viernes': row['viernes'] or 'DD-DD', 'Sábado': row['sabado'] or 'DD-DD', 'Domingo': row['domingo'] or 'DD-DD',
-        },
-        'email': row['email'] or '', 'employeeNumber': row['employee_number'] or '', 'notes': row['notes'] or '',
-        'createdAt': row['created_at'], 'updatedAt': row['updated_at'], 'updatedBy': row['updated_by'] or '',
-    }
-    if row['termination_date']:
-        d['displayStatus'] = 'Baja programada' if row['termination_date'] > today else 'Baja'
-        d['terminationPending'] = row['termination_date'] > today
-    elif str(row['status']).strip().title() == 'Baja':
-        d['displayStatus'] = 'Baja'
-        d['terminationPending'] = False
-    else:
-        d['displayStatus'] = 'Activo'
-        d['terminationPending'] = False
-    return d
-
-def _fetch_agent(conn, agent_id):
-    return _row_to_agent(conn.execute("SELECT * FROM hc_agents WHERE agent_id=?", (agent_id,)).fetchone())
-
-def _diff_agents(before, after):
-    out = {}
-    if not before or not after: return out
-    for k in ('fullName', 'supervisor', 'coordinator', 'campaign', 'channel', 'hireDate', 'role', 'isNewHire'):
-        if before.get(k) != after.get(k): out[k] = {'before': before.get(k), 'after': after.get(k)}
-    if before.get('schedules') != after.get('schedules'): out['schedules'] = {'before': before.get('schedules'), 'after': after.get('schedules')}
-    return out
-
-def _ensure_people_catalog(conn, supervisor, coordinator):
-    now = _now()
-    if supervisor:
-        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('supervisor', ?, ?)", (supervisor.strip(), now))
-    if coordinator:
-        conn.execute("INSERT OR IGNORE INTO hc_people_catalog (role, name, created_at) VALUES ('coordinator', ?, ?)", (coordinator.strip(), now))
-
-def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True):
-    new_id = str((payload or {}).get('agentId') or '').strip()
-    if not new_id: raise ValueError('El ID del agente es obligatorio.')
+def _send_otp_email(email, code):
+    if not SMTP_USER or not SMTP_PASSWORD:
+        print(f"\n[ALERTA] No hay configurado SMTP. El código para {email} es: {code}\n")
+        return False
+        
+    msg = MIMEMultipart()
+    msg['From'] = f"{SMTP_SENDER_NAME} <{SMTP_USER}>"
+    msg['To'] = email
+    msg['Subject'] = "Código de Acceso - HeadCount"
     
-    role = str(payload.get('role') or 'Agente').strip()[:120]
-    is_non_operative = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh', 'supervisor', 'coordinador', 'qa'])
-    
-    campaign = str((payload or {}).get('campaign') or '').strip()
-    if not campaign and not is_non_operative: raise ValueError('La campaña es obligatoria.')
-    if not campaign and is_non_operative: campaign = 'Administrativo'
+    body = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #334155;">
+        <h2 style="color: #0A335B;">HeadCount · Acceso Restringido</h2>
+        <p>Hola, has solicitado acceder al sistema de HeadCount.</p>
+        <p>Tu código de verificación es:</p>
+        <h1 style="font-size: 32px; letter-spacing: 5px; color: #EAB52D; background: #F1F5F9; padding: 10px; display: inline-block; border-radius: 8px;">{code}</h1>
+        <p>Este código es válido por 10 minutos. Si no solicitaste este acceso, ignora este correo.</p>
+      </body>
+    </html>
+    """
+    msg.attach(MIMEText(body, 'html'))
 
-    before = _fetch_agent(conn, old_id)
-    if before is None and not allow_create: raise ValueError('No se encontró el agente.')
-
-    supervisor = str(payload.get('supervisor') or '').strip()[:120]
-    coordinator = str(payload.get('coordinator') or '').strip()[:120]
-    is_new_hire = 1 if payload.get('isNewHire') else 0
-    _ensure_people_catalog(conn, supervisor, coordinator)
-
-    if before and old_id != new_id:
-        if conn.execute("SELECT 1 FROM hc_agents WHERE agent_id=?", (new_id,)).fetchone():
-            raise ValueError('El nuevo ID de agente ya existe.')
-        conn.execute("UPDATE hc_terminations SET agent_id=? WHERE agent_id=?", (new_id, old_id))
-        conn.execute("UPDATE hc_transfers SET agent_id=? WHERE agent_id=?", (new_id, old_id))
-        conn.execute("UPDATE hc_absences SET agent_id=? WHERE agent_id=?", (new_id, old_id))
-        conn.execute("UPDATE hc_schedule_overrides SET agent_id=? WHERE agent_id=?", (new_id, old_id))
-        conn.execute("UPDATE hc_history SET agent_id=? WHERE agent_id=?", (new_id, old_id))
-
-    schedules = payload.get('schedules') or {}
-    days = {d: _validate_schedule(schedules.get(d, (before or {}).get('schedules', {}).get(d, 'DD-DD'))) for d in ROSTER_DAYS}
-
-    hire_date = payload.get('hireDate')
-    if hire_date: 
-        hire_date = _validate_date(hire_date, 'fecha de ingreso')
-    elif before is None: 
-        hire_date = None
-
-    now = _now()
-    validity = payload.get('validity') or {}
-    is_temp = validity.get('type') == 'temporary'
-    
-    values = (
-        str(payload.get('fullName') or '').strip()[:120], role, is_new_hire, supervisor,
-        coordinator, campaign[:120], _normalize_channel(payload.get('channel')),
-        hire_date, str(payload.get('email') or '').strip()[:120], str(payload.get('employeeNumber') or '').strip()[:40],
-        str(payload.get('notes') or '').strip()[:500], 
-        days['Lunes'], days['Martes'], days['Miércoles'], days['Jueves'], days['Viernes'], days['Sábado'], days['Domingo']
-    )
-
-    if before is None:
-        conn.execute("""INSERT INTO hc_agents (agent_id, full_name, role, is_new_hire, supervisor, coordinator, campaign, channel, hire_date, email, employee_number, notes, lunes, martes, miercoles, jueves, viernes, sabado, domingo, status, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?, ?)""", (new_id,) + values + (now, now, actor))
-        _log_history(conn, new_id, 'agent_created', None, {'fullName': values[0], 'campaign': values[5], 'channel': values[6], 'supervisor': values[3], 'coordinator': values[4], 'hireDate': hire_date, 'isNewHire': bool(is_new_hire)}, str(payload.get('reason') or 'Alta de agente'), hire_date, actor)
-    else:
-        if is_temp:
-            update_values = values[:11] + (
-                before['schedules']['Lunes'], before['schedules']['Martes'], before['schedules']['Miércoles'],
-                before['schedules']['Jueves'], before['schedules']['Viernes'], before['schedules']['Sábado'], before['schedules']['Domingo']
-            )
-        else:
-            update_values = values
-            
-        conn.execute("""UPDATE hc_agents SET agent_id=?, full_name=?, role=?, is_new_hire=?, supervisor=?, coordinator=?, campaign=?, channel=?, hire_date=?, email=?, employee_number=?, notes=?, lunes=?, martes=?, miercoles=?, jueves=?, viernes=?, sabado=?, domingo=?, updated_at=?, updated_by=? WHERE agent_id=?""", (new_id,) + update_values + (now, actor, old_id))
-        
-        if is_temp:
-            start = _validate_date(validity.get('startDate'), 'fecha inicio')
-            end = _validate_date(validity.get('endDate'), 'fecha fin')
-            if start > end: raise ValueError('La fecha fin no puede ser menor a la fecha inicio.')
-            reason = str(validity.get('reason') or 'Cambio temporal')[:500]
-            
-            conn.execute("""
-                INSERT INTO hc_schedule_overrides (agent_id, start_date, end_date, schedules_json, reason, created_at, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (new_id, start, end, json.dumps(days), reason, now, actor))
-            
-            _log_history(conn, new_id, 'temporary_schedule_applied', before, {'startDate': start, 'endDate': end, 'schedules': days}, reason, start, actor)
-
-        after = _fetch_agent(conn, new_id)
-        if not is_temp and _diff_agents(before, after): 
-            _log_history(conn, new_id, 'agent_updated', before, after, str(payload.get('reason') or 'Actualización'), None, actor)
-            
-    return _fetch_agent(conn, new_id)
-
-def _format_history_detail(h):
-    details = []
-    change_type = h['change_type']
-    before = json.loads(h['before_json']) if h['before_json'] else {}
-    after = json.loads(h['after_json']) if h['after_json'] else {}
-    
-    if change_type == 'agent_created':
-        details.append(f"Alta en: {after.get('campaign', '')}")
-        details.append(f"Puesto: {after.get('role', '')}")
-    elif change_type in ('agent_updated', 'temporary_schedule_applied'):
-        for k, label in [('campaign', 'Campaña'), ('supervisor', 'Supervisor'), ('coordinator', 'Coordinador'), ('role', 'Puesto'), ('channel', 'Canal'), ('status', 'Estado')]:
-            if before.get(k) != after.get(k):
-                details.append(f"{label}: {before.get(k, '')} -> {after.get(k, '')}")
-        
-        if before.get('isNewHire') != after.get('isNewHire'):
-            details.append(f"Tipo: {'New Hire' if before.get('isNewHire') else 'Operativo'} -> {'New Hire' if after.get('isNewHire') else 'Operativo'}")
-
-        if before.get('schedules') != after.get('schedules'):
-            days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-            sch_changes = []
-            for d in days:
-                if before.get('schedules', {}).get(d) != after.get('schedules', {}).get(d):
-                    sch_changes.append(f"{d}: {before.get('schedules',{}).get(d)} -> {after.get('schedules',{}).get(d)}")
-            if sch_changes:
-                details.append("Horarios: " + ", ".join(sch_changes))
-        
-        if change_type == 'temporary_schedule_applied':
-            details.append(f"Temporal: {after.get('startDate')} al {after.get('endDate')}")
-            
-    elif change_type == 'agent_terminated':
-        details.append(f"Motivo: {h['reason']}")
-        details.append(f"Fecha: {after.get('terminationDate')}")
-        
-    elif change_type == 'agent_transferred':
-        if before.get('campaign') != after.get('toCampaign'): details.append(f"Campaña: {before.get('campaign')} -> {after.get('toCampaign')}")
-        if before.get('supervisor') != after.get('toSupervisor'): details.append(f"Supervisor: {before.get('supervisor')} -> {after.get('toSupervisor')}")
-        if before.get('coordinator') != after.get('toCoordinator'): details.append(f"Coordinador: {before.get('coordinator')} -> {after.get('toCoordinator')}")
-        if before.get('role') != after.get('toRole'): details.append(f"Puesto: {before.get('role')} -> {after.get('toRole')}")
-        if after.get('effectiveDate'): details.append(f"Efectiva: {after.get('effectiveDate')}")
-        
-    elif change_type in ('vacation_created', 'incapacity_created'):
-        details.append(f"Periodo: {after.get('startDate')} al {after.get('endDate')}")
-        
-    return " | ".join(details) if details else (h['reason'] or '')
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"\n[ERROR] No se pudo enviar correo a {email}: {e}\nCódigo generado: {code}\n")
+        return False
 
 hc_bp = Blueprint('hc_manager', __name__)
 
 @hc_bp.before_request
 def require_login():
-    # Permitir archivos estáticos y las rutas de login
-    if request.path in ['/login', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+    if request.path in ['/login', '/verify', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
         return
     
-    # Si intenta acceder a la API o a la raíz sin sesión, redirigir
     if 'user_email' not in session:
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Sesión expirada o no autorizada.'}), 401
@@ -477,10 +366,52 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if email in ALLOWED_EMAILS:
-            session['user_email'] = email
-            return redirect(url_for('hc_manager._serve_dashboard'))
-        return render_template_string(LOGIN_TEMPLATE, error="El correo ingresado no está autorizado para acceder.")
-    return render_template_string(LOGIN_TEMPLATE, error=None)
+            # Generar código de 6 dígitos
+            code = ''.join(secrets.choice("0123456789") for _ in range(6))
+            expires = (datetime.now() + timedelta(minutes=10)).isoformat(timespec='seconds')
+            
+            # Guardar en base de datos
+            conn = _conn()
+            try:
+                conn.execute("REPLACE INTO hc_login_otps (email, code, expires_at) VALUES (?, ?, ?)", (email, code, expires))
+                conn.commit()
+            finally:
+                conn.close()
+                
+            # Enviar correo
+            _send_otp_email(email, code)
+            
+            return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error=None)
+        return render_template_string(LOGIN_TEMPLATE, step='email', email='', error="El correo ingresado no está autorizado para acceder.")
+    return render_template_string(LOGIN_TEMPLATE, step='email', email='', error=None)
+
+@hc_bp.route('/verify', methods=['POST'])
+def verify():
+    email = request.form.get('email', '').strip().lower()
+    code = request.form.get('code', '').strip()
+    
+    if email not in ALLOWED_EMAILS:
+        return redirect(url_for('hc_manager.login'))
+        
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM hc_login_otps WHERE email=?", (email,)).fetchone()
+        if row:
+            expires = datetime.fromisoformat(row['expires_at'])
+            if datetime.now() > expires:
+                conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
+                conn.commit()
+                return render_template_string(LOGIN_TEMPLATE, step='email', email='', error="El código ha expirado. Solicita uno nuevo.")
+            
+            if row['code'] == code:
+                conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
+                conn.commit()
+                session['user_email'] = email
+                return redirect(url_for('hc_manager._serve_dashboard'))
+                
+        return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error="Código incorrecto. Intenta de nuevo.")
+    finally:
+        conn.close()
 
 @hc_bp.route('/logout')
 def logout():
@@ -1471,7 +1402,6 @@ def hc_bulk_terminate():
 
 def create_hc_app():
     app = Flask(__name__, static_folder=None)
-    # Clave secreta para las sesiones (puedes cambiarla por una más segura en .env)
     app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
     app.register_blueprint(hc_bp)
     return app
