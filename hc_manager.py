@@ -534,7 +534,7 @@ def require_login():
 
 @hc_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    _init_db() # <--- CORRECCIÓN: Fuerza la creación de tablas al entrar
+    _init_db() 
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if email in ALLOWED_EMAILS:
@@ -556,29 +556,43 @@ def login():
 
 @hc_bp.route('/verify', methods=['POST'])
 def verify():
-    _init_db() # <--- CORRECCIÓN: Fuerza la creación de tablas al verificar
+    _init_db() 
     email = request.form.get('email', '').strip().lower()
     code = request.form.get('code', '').strip()
     
+    print(f"\n--- DEBUG LOGIN ---")
+    print(f"Intento de acceso para: {email}")
+    print(f"Código ingresado: '{code}'")
+    
     if email not in ALLOWED_EMAILS:
+        print(f"Error: Email no está en la lista blanca.")
         return redirect(url_for('hc_manager.login'))
         
     conn = _conn()
     try:
         row = conn.execute("SELECT * FROM hc_login_otps WHERE email=?", (email,)).fetchone()
         if row:
+            print(f"Código en Base de Datos: '{row['code']}'")
+            print(f"Expira en: {row['expires_at']}")
+            
             expires = datetime.fromisoformat(row['expires_at'])
             if datetime.now() > expires:
+                print(f"Error: El código ha expirado.")
                 conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
                 conn.commit()
                 return render_template_string(LOGIN_TEMPLATE, step='email', email='', error="El código ha expirado. Solicita uno nuevo.")
             
             if row['code'] == code:
+                print(f"¡ÉXITO! Códigos coinciden.")
                 conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
                 conn.commit()
                 session['user_email'] = email
                 return redirect(url_for('hc_manager._serve_dashboard'))
-                
+            else:
+                print(f"Error: El código no coincide.")
+        else:
+            print(f"Error: No se encontró ningún código generado para este email en la base de datos.")
+            
         return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error="Código incorrecto. Intenta de nuevo.")
     finally:
         conn.close()
