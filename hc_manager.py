@@ -601,6 +601,33 @@ def hc_list_agents():
     conn = _conn()
     try:
         rows = [_row_to_agent(r) for r in conn.execute(sql, args).fetchall()]
+
+        # Con rango de fechas: mostrar el horario vigente en ese rango (aplica horarios temporales)
+        if start_date and end_date:
+            try:
+                d_start = datetime.strptime(start_date[:10], '%Y-%m-%d').date()
+                d_end = datetime.strptime(end_date[:10], '%Y-%m-%d').date()
+            except ValueError:
+                d_start = d_end = None
+            if d_start and d_end and d_start <= d_end:
+                ov_by_agent = defaultdict(list)
+                for o in conn.execute("SELECT * FROM hc_schedule_overrides WHERE start_date <= ? AND end_date >= ? ORDER BY start_date", (d_end.isoformat(), d_start.isoformat())):
+                    ov_by_agent[o['agent_id']].append(o)
+                for r in rows:
+                    r['tempDays'] = []
+                    ovs = ov_by_agent.get(r['agentId'])
+                    if not ovs: continue
+                    effective = dict(r['schedules'])
+                    for offset in range(min(7, (d_end - d_start).days + 1)):
+                        day = d_start + timedelta(days=offset)
+                        day_name = ROSTER_DAYS[day.weekday()]
+                        for o in ovs:
+                            o_s, o_e = parse_db_date(o['start_date']), parse_db_date(o['end_date'])
+                            if o_s and o_e and o_s <= day <= o_e:
+                                effective[day_name] = json.loads(o['schedules_json']).get(day_name, effective[day_name])
+                                r['tempDays'].append(day_name)
+                                break
+                    r['schedules'] = effective
         
         if status_filter in ('Vacación', 'Incapacidad'):
             today = _today()
