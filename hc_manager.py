@@ -11,7 +11,8 @@ import threading
 import unicodedata
 from datetime import datetime, timedelta
 from collections import defaultdict
-from flask import Flask, Blueprint, request, jsonify, send_file, send_from_directory
+from functools import wraps
+from flask import Flask, Blueprint, request, jsonify, send_file, send_from_directory, session, redirect, url_for, render_template_string
 
 try:
     import pandas as pd
@@ -25,6 +26,62 @@ HC_HTML_FILE = 'hc_dashboard.html'
 
 HC_LOCK = threading.RLock()
 HC_DB_READY = False
+
+# LISTA BLANCA DE CORREOS AUTORIZADOS
+ALLOWED_EMAILS = {
+    'scarrera@gpmass.com', 'vpalomares@gpmass.com', 'amontiel@gpmass.com',
+    'ahernandez@gpmass.com', 'esalinas@gpmass.com', 'acarrasco@gpmass.com',
+    'vmontesc@hexalud.com', 'eramirez@gpmass.com', 'crodriguez@gpmass.com',
+    'evelazquez@gpmass.com', 'dangeles@gpmass.com', 'jpadilla@gpmass.com',
+    'jperea@gpmass.com', 'aramos@gpmass.com', 'lharo@gpmass.com',
+    'ofranco@gpmass.com', 'eperez@gpmass.com'
+}
+
+# DISEÑO DE LA PANTALLA DE LOGIN
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Acceso Restringido · HeadCount</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0A335B; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; color: #334155; }
+        .login-card { background: #FFFFFF; padding: 40px; border-radius: 16px; box-shadow: 0 20px 50px -20px rgba(0,0,0,0.4); width: 100%; max-width: 400px; text-align: center; }
+        .logo { font-size: 24px; font-weight: 900; color: #0A335B; margin-bottom: 4px; }
+        .logo span { color: #EAB52D; }
+        .subtitle { font-size: 11px; color: #64748B; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 800; }
+        .input-group { text-align: left; margin-bottom: 20px; }
+        .input-group label { display: block; font-size: 10px; font-weight: 800; color: #64748B; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .input-group input { width: 100%; padding: 12px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.15s; }
+        .input-group input:focus { border-color: #0A335B; box-shadow: 0 0 0 3px rgba(10,51,91,0.15); }
+        .btn-login { width: 100%; padding: 14px; background: #EAB52D; color: #0A335B; border: none; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; transition: 0.15s; text-transform: uppercase; letter-spacing: 0.5px;}
+        .btn-login:hover { background: #DCA421; }
+        .error { background: #FEE2E2; color: #991B1B; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 20px; font-weight: 700; border: 1px solid #FCA5A5; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo">GRUPO <span>PROMASS</span></div>
+        <div class="subtitle">HeadCount · Acceso Restringido</div>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST">
+            <div class="input-group">
+                <label>Correo Corporativo Autorizado</label>
+                <input type="email" name="email" placeholder="usuario@gpmass.com" required autofocus>
+            </div>
+            <button type="submit" class="btn-login">Ingresar al sistema</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 ROSTER_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
@@ -403,6 +460,37 @@ def _format_history_detail(h):
 
 hc_bp = Blueprint('hc_manager', __name__)
 
+@hc_bp.before_request
+def require_login():
+    # Permitir archivos estáticos y las rutas de login
+    if request.path in ['/login', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+        return
+    
+    # Si intenta acceder a la API o a la raíz sin sesión, redirigir
+    if 'user_email' not in session:
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Sesión expirada o no autorizada.'}), 401
+        return redirect(url_for('hc_manager.login'))
+
+@hc_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        if email in ALLOWED_EMAILS:
+            session['user_email'] = email
+            return redirect(url_for('hc_manager._serve_dashboard'))
+        return render_template_string(LOGIN_TEMPLATE, error="El correo ingresado no está autorizado para acceder.")
+    return render_template_string(LOGIN_TEMPLATE, error=None)
+
+@hc_bp.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('hc_manager.login'))
+
+@hc_bp.route('/api/hc/me', methods=['GET'])
+def hc_me():
+    return jsonify({'email': session.get('user_email', '')})
+
 @hc_bp.after_request
 def _cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
@@ -495,7 +583,7 @@ def hc_create_agent():
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.pop('actorMode', 'operaciones'))[:80]
+        actor = str(payload.pop('actorMode', session.get('user_email', 'operaciones')))[:80]
         agent_id = str(payload.get('agentId') or '').strip()
         with HC_LOCK:
             conn = _conn()
@@ -516,7 +604,7 @@ def hc_update_agent(agent_id):
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.pop('actorMode', 'operaciones'))[:80]
+        actor = str(payload.pop('actorMode', session.get('user_email', 'operaciones')))[:80]
         with HC_LOCK:
             conn = _conn()
             try:
@@ -535,7 +623,7 @@ def hc_terminate_agent(agent_id):
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        actor = str(payload.get('actorMode', session.get('user_email', 'operaciones')))[:80]
         termination_date = _validate_date(payload.get('terminationDate'), 'fecha de baja')
         reason = str(payload.get('reason') or '')[:500]
         rehireable = 1 if payload.get('rehireable', True) else 0
@@ -567,7 +655,7 @@ def hc_reactivate_agent(agent_id):
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        actor = str(payload.get('actorMode', session.get('user_email', 'operaciones')))[:80]
         new_hire = payload.get('hireDate')
         with HC_LOCK:
             conn = _conn()
@@ -595,7 +683,7 @@ def hc_transfer_agent(agent_id):
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        actor = str(payload.get('actorMode', session.get('user_email', 'operaciones')))[:80]
         to_campaign = str(payload.get('toCampaign') or '').strip()
         to_channel = _normalize_channel(payload.get('toChannel') or '')
         to_supervisor = str(payload.get('toSupervisor') or '').strip()
@@ -677,7 +765,7 @@ def hc_create_absence():
         start = _validate_date(payload.get('startDate'), 'fecha inicio')
         end = _validate_date(payload.get('endDate'), 'fecha fin')
         reason = str(payload.get('reason') or '')[:500]
-        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+        actor = str(payload.get('actorMode') or session.get('user_email', 'operaciones'))[:80]
 
         if not agent_id or abs_type not in ('vacation', 'incapacity'):
             raise ValueError('Agente y Tipo son obligatorios.')
@@ -738,7 +826,7 @@ def hc_create_person():
         payload = request.get_json(force=True, silent=False) or {}
         role = str(payload.get('role') or '').strip()
         name = str(payload.get('name') or '').strip()
-        actor = str(payload.get('actorMode') or 'operaciones')[:80]
+        actor = str(payload.get('actorMode') or session.get('user_email', 'operaciones'))[:80]
 
         if role not in ('supervisor', 'coordinator') or not name:
             raise ValueError('Rol y Nombre son obligatorios.')
@@ -1193,7 +1281,7 @@ def hc_import():
     _init_db()
     if 'file' not in request.files: return jsonify({'error': 'Selecciona un archivo CSV o XLSX.'}), 400
     f = request.files['file']
-    actor = str(request.form.get('actorMode', 'operaciones'))[:80]
+    actor = str(request.form.get('actorMode', session.get('user_email', 'operaciones')))[:80]
     
     try:
         file_bytes = f.read()
@@ -1352,7 +1440,7 @@ def hc_bulk_terminate():
     _init_db()
     try:
         payload = request.get_json(force=True, silent=False) or {}
-        actor = str(payload.get('actorMode', 'operaciones'))[:80]
+        actor = str(payload.get('actorMode', session.get('user_email', 'operaciones')))[:80]
         ids = payload.get('agentIds') or []
         date = _validate_date(payload.get('terminationDate'), 'fecha de baja')
         reason = str(payload.get('reason') or 'Baja masiva')[:500]
@@ -1383,6 +1471,8 @@ def hc_bulk_terminate():
 
 def create_hc_app():
     app = Flask(__name__, static_folder=None)
+    # Clave secreta para las sesiones (puedes cambiarla por una más segura en .env)
+    app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
     app.register_blueprint(hc_bp)
     return app
 
