@@ -32,10 +32,10 @@ HC_LOCK = threading.RLock()
 HC_DB_READY = False
 
 # CONFIGURACIÓN SMTP (Correo Saliente)
-SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com') # Cambiar si usan otro servidor
+SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com') 
 SMTP_PORT = int(os.environ.get('SMTP_PORT', 465))
-SMTP_USER = os.environ.get('SMTP_USER', '') # Tu correo corporativo o Gmail
-SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '') # Contraseña o App Password
+SMTP_USER = os.environ.get('SMTP_USER', '') 
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '') 
 SMTP_SENDER_NAME = "HeadCount · Grupo Promass"
 
 # LISTA BLANCA DE CORREOS AUTORIZADOS
@@ -48,7 +48,6 @@ ALLOWED_EMAILS = {
     'ofranco@gpmass.com', 'eperez@gpmass.com'
 }
 
-# DISEÑO DE LA PANTALLA DE LOGIN (PASO 1 Y PASO 2)
 LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
@@ -366,11 +365,9 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if email in ALLOWED_EMAILS:
-            # Generar código de 6 dígitos
             code = ''.join(secrets.choice("0123456789") for _ in range(6))
             expires = (datetime.now() + timedelta(minutes=10)).isoformat(timespec='seconds')
             
-            # Guardar en base de datos
             conn = _conn()
             try:
                 conn.execute("REPLACE INTO hc_login_otps (email, code, expires_at) VALUES (?, ?, ?)", (email, code, expires))
@@ -378,7 +375,6 @@ def login():
             finally:
                 conn.close()
                 
-            # Enviar correo
             _send_otp_email(email, code)
             
             return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error=None)
@@ -1400,14 +1396,11 @@ def hc_bulk_terminate():
     except ValueError as e: return jsonify({'error': str(e)}), 400
     except Exception as e: return jsonify({'error': f'Error en baja masiva: {e}'}), 500
 
-def create_hc_app():
-    app = Flask(__name__, static_folder=None)
-    app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
-    app.register_blueprint(hc_bp)
-    return app
+app = Flask(__name__, static_folder=None)
+app.secret_key = os.environ.get('HC_SECRET_KEY', 'promass_hc_manager_secret_key_2026')
+app.register_blueprint(hc_bp)
 
 if __name__ == '__main__':
     _init_db()
-    app = create_hc_app()
     port = int(os.environ.get('HC_PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
