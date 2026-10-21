@@ -279,11 +279,11 @@ def _save_agent_tx(conn, old_id, payload, actor='operaciones', allow_create=True
     if not new_id: raise ValueError('El ID del agente es obligatorio.')
     
     role = str(payload.get('role') or 'Agente').strip()[:120]
-    is_admin = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
+    is_non_operative = any(term in role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh', 'supervisor', 'coordinador', 'qa'])
     
     campaign = str((payload or {}).get('campaign') or '').strip()
-    if not campaign and not is_admin: raise ValueError('La campaña es obligatoria.')
-    if not campaign and is_admin: campaign = 'Administrativo'
+    if not campaign and not is_non_operative: raise ValueError('La campaña es obligatoria.')
+    if not campaign and is_non_operative: campaign = 'Administrativo'
 
     before = _fetch_agent(conn, old_id)
     if before is None and not allow_create: raise ValueError('No se encontró el agente.')
@@ -604,12 +604,12 @@ def hc_transfer_agent(agent_id):
         effective = _validate_date(payload.get('effectiveDate'), 'fecha efectiva')
         reason = str(payload.get('reason') or '')[:500]
 
-        is_admin = any(term in to_role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh'])
+        is_non_operative = any(term in to_role.lower() for term in ['administrativo', 'admin', 'staff', 'formador', 'rrhh', 'supervisor', 'coordinador', 'qa'])
         
-        if not to_campaign and not is_admin: 
+        if not to_campaign and not is_non_operative: 
             raise ValueError('La campaña destino es obligatoria.')
         
-        if is_admin and not to_campaign:
+        if is_non_operative and not to_campaign:
             to_campaign = 'Administrativo'
 
         with HC_LOCK:
@@ -989,7 +989,6 @@ def hc_metrics():
         if active_at_start <= 0:
             active_at_start = active
 
-        # NUEVA FÓRMULA DE ROTACIÓN: Bajas / (Activos + Bajas) * 100
         hc_base_rotacion = active + terminations
         if hc_base_rotacion <= 0:
             attrition = 0.0
