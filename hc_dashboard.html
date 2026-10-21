@@ -307,13 +307,9 @@
           
           <div class="field">
             <label>Puesto / Rol</label>
+            <!-- SOLO SE DEJA AGENTE POR DEFECTO -->
             <select id="fldRole" class="roster-select" style="font-size:13px; padding: 0 12px;">
                 <option value="Agente">Agente</option>
-                <option value="Supervisor">Supervisor</option>
-                <option value="Coordinador">Coordinador</option>
-                <option value="Staff QA">Staff QA</option>
-                <option value="Formador">Formador</option>
-                <option value="Administrativo">Administrativo</option>
             </select>
           </div>
           <div class="field">
@@ -897,7 +893,12 @@ async function openAgentModal(agentId = null) {
   // Lógica segura para el SELECT de Puesto/Rol
   const roleSelect = fld('fldRole');
   const roleVal = a?.role || 'Agente';
-  if (!Array.from(roleSelect.options).some(opt => opt.value === roleVal)) {
+  
+  // Limpiar el select (dejando solo la opción de Agente)
+  roleSelect.innerHTML = '<option value="Agente">Agente</option>';
+  
+  // Si el agente tiene un rol diferente (ej. Supervisor), agregarlo temporalmente para que no falle al editar
+  if (roleVal !== 'Agente') {
       const newOpt = document.createElement('option');
       newOpt.value = roleVal;
       newOpt.text = roleVal;
