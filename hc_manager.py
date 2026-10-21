@@ -1107,7 +1107,8 @@ def hc_export_csv():
             except ValueError:
                 return jsonify({'error': 'Formato de fecha inválido.'}), 400
 
-            writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
+            # SE AGREGAN FECHA DE INGRESO Y BAJA AL HEADER DEL HISTÓRICO
+            writer.writerow(['Fecha', 'ID Agente', 'Nombre Completo', 'Fecha Ingreso', 'Fecha Baja', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
             
             current_date = start_date
             while current_date <= end_date:
@@ -1167,8 +1168,10 @@ def hc_export_csv():
 
                     if status_filter and hist_status != status_filter: continue
 
+                    # SE AGREGAN LAS VARIABLES a['hireDate'] y a['terminationDate'] AL ROW
                     writer.writerow([
-                        date_str, a['agentId'], a['fullName'], hist_role, hist_supervisor, hist_coordinator,
+                        date_str, a['agentId'], a['fullName'], a['hireDate'] or '', a['terminationDate'] or '',
+                        hist_role, hist_supervisor, hist_coordinator,
                         hist_campaign, hist_channel, hist_status, term_reason,
                         hist_schedules.get('Lunes', ''), hist_schedules.get('Martes', ''), hist_schedules.get('Miércoles', ''),
                         hist_schedules.get('Jueves', ''), hist_schedules.get('Viernes', ''), hist_schedules.get('Sábado', ''),
