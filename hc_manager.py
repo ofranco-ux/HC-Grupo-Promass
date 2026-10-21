@@ -82,25 +82,13 @@ LOGIN_TEMPLATE = """
         <div class="error">{{ error }}</div>
         {% endif %}
 
-        {% if step == 'email' %}
-            <form method="POST" action="/login">
-                <div class="input-group">
-                    <label>Correo Autorizado</label>
-                    <input type="email" name="email" placeholder="usuario@gpmass.com" required autofocus style="text-align:left;">
-                </div>
-                <button type="submit" class="btn-login">Enviar Código de Acceso</button>
-            </form>
-        {% else %}
-            <div class="success">Código enviado a <b>{{ email }}</b>. Revisa tu bandeja de entrada (y la carpeta de spam).</div>
-            <form method="POST" action="/verify">
-                <input type="hidden" name="email" value="{{ email }}">
-                <div class="input-group">
-                    <label>Código de 6 Dígitos</label>
-                    <input type="text" name="code" placeholder="000000" maxlength="6" required autofocus style="font-size:24px; letter-spacing: 8px; font-family: monospace;">
-                </div>
-                <button type="submit" class="btn-login">Verificar e Ingresar</button>
-            </form>
-        {% endif %}
+        <form method="POST" action="/login">
+            <div class="input-group">
+                <label>Correo Autorizado</label>
+                <input type="email" name="email" placeholder="usuario@gpmass.com" required autofocus style="text-align:left;">
+            </div>
+            <button type="submit" class="btn-login">Ingresar</button>
+        </form>
     </div>
 </body>
 </html>
@@ -524,7 +512,7 @@ hc_bp = Blueprint('hc_manager', __name__)
 
 @hc_bp.before_request
 def require_login():
-    if request.path in ['/login', '/verify', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
+    if request.path in ['/login', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
         return
     
     if 'user_email' not in session:
@@ -534,68 +522,16 @@ def require_login():
 
 @hc_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    _init_db() 
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         if email in ALLOWED_EMAILS:
-            code = ''.join(secrets.choice("0123456789") for _ in range(6))
-            expires = (datetime.now() + timedelta(minutes=10)).isoformat(timespec='seconds')
-            
-            conn = _conn()
-            try:
-                conn.execute("REPLACE INTO hc_login_otps (email, code, expires_at) VALUES (?, ?, ?)", (email, code, expires))
-                conn.commit()
-            finally:
-                conn.close()
-                
-            _send_otp_email(email, code)
-            
-            return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error=None)
-        return render_template_string(LOGIN_TEMPLATE, step='email', email='', error="El correo ingresado no está autorizado para acceder.")
-    return render_template_string(LOGIN_TEMPLATE, step='email', email='', error=None)
-
-@hc_bp.route('/verify', methods=['POST'])
-def verify():
-    _init_db() 
-    email = request.form.get('email', '').strip().lower()
-    code = request.form.get('code', '').strip()
-    
-    print(f"\n--- DEBUG LOGIN ---")
-    print(f"Intento de acceso para: {email}")
-    print(f"Código ingresado: '{code}'")
-    
-    if email not in ALLOWED_EMAILS:
-        print(f"Error: Email no está en la lista blanca.")
-        return redirect(url_for('hc_manager.login'))
-        
-    conn = _conn()
-    try:
-        row = conn.execute("SELECT * FROM hc_login_otps WHERE email=?", (email,)).fetchone()
-        if row:
-            print(f"Código en Base de Datos: '{row['code']}'")
-            print(f"Expira en: {row['expires_at']}")
-            
-            expires = datetime.fromisoformat(row['expires_at'])
-            if datetime.now() > expires:
-                print(f"Error: El código ha expirado.")
-                conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
-                conn.commit()
-                return render_template_string(LOGIN_TEMPLATE, step='email', email='', error="El código ha expirado. Solicita uno nuevo.")
-            
-            if row['code'] == code:
-                print(f"¡ÉXITO! Códigos coinciden.")
-                conn.execute("DELETE FROM hc_login_otps WHERE email=?", (email,))
-                conn.commit()
-                session['user_email'] = email
-                return redirect(url_for('hc_manager._serve_dashboard'))
-            else:
-                print(f"Error: El código no coincide.")
-        else:
-            print(f"Error: No se encontró ningún código generado para este email en la base de datos.")
-            
-        return render_template_string(LOGIN_TEMPLATE, step='verify', email=email, error="Código incorrecto. Intenta de nuevo.")
-    finally:
-        conn.close()
+            session.clear()
+            session['user_email'] = email
+            return redirect(url_for('hc_manager._serve_dashboard'))
+        return render_template_string(LOGIN_TEMPLATE, error="El correo ingresado no está autorizado para acceder.")
+    if 'user_email' in session:
+        return redirect(url_for('hc_manager._serve_dashboard'))
+    return render_template_string(LOGIN_TEMPLATE, error=None)
 
 @hc_bp.route('/logout')
 def logout():
