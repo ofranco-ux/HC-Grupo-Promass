@@ -28,6 +28,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HC_DB_PATH = os.environ.get('HC_DB_PATH', os.path.join(BASE_DIR, 'hc_manager.db'))
 HC_HTML_FILE = 'hc_dashboard.html'
 
+# Token de SOLO LECTURA para que otros tableros (forecast) consuman /api/hc/* por GET.
+# Definirlo como variable de entorno HC_API_TOKEN (cadena larga y aleatoria).
+HC_API_TOKEN = os.environ.get('HC_API_TOKEN', '')
+
 HC_LOCK = threading.RLock()
 HC_DB_READY = False
 
@@ -45,7 +49,7 @@ ALLOWED_EMAILS = {
     'vmontesc@hexalud.com', 'eramirez@gpmass.com', 'crodriguez@gpmass.com',
     'evelazquez@gpmass.com', 'dangeles@gpmass.com', 'jpadilla@gpmass.com',
     'jperea@gpmass.com', 'aramos@gpmass.com', 'lharo@gpmass.com',
-    'ofranco@gpmass.com', 'eperez@gpmass.com', 'jegonzalez@gpmass.com'
+    'ofranco@gpmass.com', 'eperez@gpmass.com'
 }
 
 LOGIN_TEMPLATE = """
@@ -514,6 +518,12 @@ hc_bp = Blueprint('hc_manager', __name__)
 def require_login():
     if request.path in ['/login', '/logout'] or request.path.endswith(('.css', '.js', '.png', '.jpg', '.ico', '.svg')):
         return
+
+    # Acceso servidor-a-servidor: solo GET sobre /api/hc/ con X-API-Key válido
+    if HC_API_TOKEN and request.method == 'GET' and request.path.startswith('/api/hc/'):
+        sent = request.headers.get('X-API-Key', '')
+        if sent and secrets.compare_digest(sent, HC_API_TOKEN):
+            return
     
     if 'user_email' not in session:
         if request.path.startswith('/api/'):
@@ -873,6 +883,29 @@ def hc_create_absence():
         return jsonify({'ok': True}), 200
     except ValueError as e: return jsonify({'error': str(e)}), 400
     except Exception as e: return jsonify({'error': f'No se pudo registrar: {e}'}), 500
+
+@hc_bp.route('/api/hc/overrides', methods=['GET'])
+def hc_list_overrides():
+    """Horarios temporales por rango de fechas (para cobertura por fecha en otros tableros)."""
+    _init_db()
+    since = request.args.get('from', '').strip() or (datetime.now() - timedelta(days=35)).strftime('%Y-%m-%d')
+    conn = _conn()
+    try:
+        rows = []
+        for r in conn.execute("""
+            SELECT o.agent_id, o.start_date, o.end_date, o.schedules_json, o.reason
+            FROM hc_schedule_overrides o
+            JOIN hc_agents ag ON ag.agent_id = o.agent_id
+            WHERE o.end_date >= ? AND ag.status = 'Activo'
+            ORDER BY o.start_date
+        """, (since,)).fetchall():
+            d = dict(r)
+            try: d['schedules'] = json.loads(d.pop('schedules_json') or '{}')
+            except Exception: d['schedules'] = {}
+            rows.append(d)
+        return jsonify({'overrides': rows}), 200
+    finally:
+        conn.close()
 
 @hc_bp.route('/api/hc/people', methods=['GET'])
 def hc_list_people():
