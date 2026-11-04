@@ -49,7 +49,7 @@ ALLOWED_EMAILS = {
     'vmontesc@hexalud.com', 'eramirez@gpmass.com', 'crodriguez@gpmass.com',
     'evelazquez@gpmass.com', 'dangeles@gpmass.com', 'jpadilla@gpmass.com',
     'jperea@gpmass.com', 'aramos@gpmass.com', 'lharo@gpmass.com',
-    'ofranco@gpmass.com', 'eperez@gpmass.com'
+    'ofranco@gpmass.com', 'eperez@gpmass.com', 'rhernandez@gpmass.com', 'acarrasco@gpmass.com'
 }
 
 LOGIN_TEMPLATE = """
