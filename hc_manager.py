@@ -594,7 +594,11 @@ def hc_list_agents():
         sql += " AND coordinator=?"
         args.append(coordinator)
     if status_filter == 'Activo':
-        sql += " AND status='Activo'"
+        # HC vigente a la fecha local: no incluir ingresos futuros ni bajas
+        # cuya fecha efectiva ya llegó (aunque status aún figure como Activo).
+        today = _today()
+        sql += " AND status='Activo' AND (hire_date IS NULL OR hire_date <= ?) AND (termination_date IS NULL OR termination_date > ?)"
+        args.extend([today, today])
     elif status_filter == 'Baja':
         sql += " AND status='Baja'"
     elif status_filter == 'New Hire':
