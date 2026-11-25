@@ -1602,4 +1602,3 @@ app.register_blueprint(hc_bp)
 if __name__ == '__main__':
     port = int(os.environ.get('HC_PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
-```[cite: 1]
