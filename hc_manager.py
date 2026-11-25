@@ -100,6 +100,12 @@ LOGIN_TEMPLATE = """
 
 ROSTER_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
+# Filtro global para mostrar y calcular únicamente personal con puesto de Agente
+AGENT_ONLY_SQL = "LOWER(TRIM(COALESCE(role, 'Agente'))) = 'agente'"
+
+def _is_agent_role(role_val):
+    return str(role_val or 'Agente').strip().lower() == 'agente'
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hc_agents (
     agent_id TEXT PRIMARY KEY,
@@ -579,7 +585,7 @@ def hc_list_agents():
     start_date = request.args.get('startDate', '').strip()
     end_date = request.args.get('endDate', '').strip()
 
-    sql = "SELECT * FROM hc_agents WHERE 1=1"
+    sql = f"SELECT * FROM hc_agents WHERE {AGENT_ONLY_SQL}"
     args = []
     if campaign:
         sql += " AND campaign=?"
@@ -901,6 +907,7 @@ def hc_list_overrides():
             FROM hc_schedule_overrides o
             JOIN hc_agents ag ON ag.agent_id = o.agent_id
             WHERE o.end_date >= ? AND ag.status = 'Activo'
+              AND LOWER(TRIM(COALESCE(ag.role, 'Agente'))) = 'agente'
             ORDER BY o.start_date
         """, (since,)).fetchall():
             d = dict(r)
@@ -1070,7 +1077,7 @@ def hc_metrics():
     status_filter = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip().lower()
 
-    filters = []
+    filters = ["LOWER(TRIM(COALESCE(a.role, 'Agente'))) = 'agente'"]
     args = []
     if campaign:
         filters.append("a.campaign=?")
@@ -1158,7 +1165,7 @@ def hc_metrics():
             [start, end] + args
         ).fetchone()[0]
 
-        transfer_filters = []
+        transfer_filters = ["LOWER(TRIM(COALESCE(a.role, 'Agente'))) = 'agente'"]
         transfer_args = [start, end]
         if campaign:
             transfer_filters.append("(t.from_campaign=? OR t.to_campaign=?)")
@@ -1217,7 +1224,7 @@ def hc_metrics():
 def hc_list_campaigns():
     _init_db()
     conn = _conn()
-    try: rows = [r['campaign'] for r in conn.execute("SELECT DISTINCT campaign FROM hc_agents WHERE campaign <> '' ORDER BY campaign").fetchall()]
+    try: rows = [r['campaign'] for r in conn.execute(f"SELECT DISTINCT campaign FROM hc_agents WHERE campaign <> '' AND {AGENT_ONLY_SQL} ORDER BY campaign").fetchall()]
     finally: conn.close()
     return jsonify({'campaigns': rows}), 200
 
@@ -1291,6 +1298,7 @@ def hc_export_csv():
             writer.writerow(['ID Agente', 'Nombre Completo', 'Puesto', 'Supervisor', 'Coordinador', 'Campaña', 'Canal', 'Estado', 'Fecha Ingreso', 'Fecha Baja', 'Motivo Baja', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
             
             for r in agents:
+                if not _is_agent_role(r.get('role')): continue
                 if campaign_filter and r['campaign'] != campaign_filter: continue
                 if channel_filter and r['channel'] != channel_filter: continue
                 if supervisor_filter and r['supervisor'] != supervisor_filter: continue
@@ -1345,6 +1353,7 @@ def hc_export_csv():
                             hist_channel = t['to_channel']
                             hist_role = t['to_role']
 
+                    if not _is_agent_role(hist_role): continue
                     if campaign_filter and hist_campaign != campaign_filter: continue
                     if channel_filter and hist_channel != channel_filter: continue
                     if supervisor_filter and hist_supervisor != supervisor_filter: continue
@@ -1593,3 +1602,6 @@ app.register_blueprint(hc_bp)
 if __name__ == '__main__':
     port = int(os.environ.get('HC_PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('HC_DEBUG', '0') == '1')
+```[cite: 1]
+
+Solo reemplaza el contenido de tu archivo `hc_manager.py` y reinicia la aplicación web en PythonAnywhere (`Reload`) para que aplique los cambios.
